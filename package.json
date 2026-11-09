@@ -1,0 +1,14 @@
+{
+  "name": "budgetplanner",
+  "version": "1.0.0",
+  "description": "Schlanker Budget-Manager für Heimserver",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "better-sqlite3": "^9.4.3",
+    "cheerio": "^1.0.0-rc.12"
+  }
+}

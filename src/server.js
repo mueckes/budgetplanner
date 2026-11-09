@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
+const cheerio = require('cheerio');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -214,6 +215,121 @@ app.get('/api/projects/:id/export', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="budget-${project.id}.json"`);
   res.setHeader('Content-Type', 'application/json');
   res.send(JSON.stringify(exportData, null, 2));
+});
+
+// URL-Metadaten & Preis extrahieren (Schema.org / JSON-LD + OpenGraph)
+app.post('/api/scrape-url', async (req, res) => {
+  const { url } = req.body;
+  if (!url || !url.startsWith('http')) {
+    return res.status(400).json({ error: 'Ungültige URL' });
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000); // 6s Timeout
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      redirect: 'follow',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,;q=0.8',
+        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sec-fetch-dest': 'document',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-site': 'none',
+        'sec-fetch-user': '?1',
+        'upgrade-insecure-requests': '1'
+      }
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      return res.status(400).json({ error: `Website meldet Status ${response.status}` });
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    let title = null;
+    let price = null;
+
+    // 1. Priorität: Schema.org JSON-LD
+    $('script[type="application/ld+json"]').each((_, elem) => {
+      try {
+        const rawJson = $(elem).html();
+        if (!rawJson) return;
+        const data = JSON.parse(rawJson);
+
+        const findProductData = (obj) => {
+          if (!obj) return;
+          if (Array.isArray(obj)) {
+            obj.forEach(findProductData);
+            return;
+          }
+          if (typeof obj === 'object') {
+            const type = obj['@type'];
+            if (type === 'Product' || type === 'Offer' || (Array.isArray(type) && type.includes('Product'))) {
+              if (!title && obj.name) title = String(obj.name).trim();
+              
+              // Preis auslesen
+              const offers = obj.offers;
+              if (offers) {
+                if (Array.isArray(offers) && offers[0]?.price) {
+                  price = parseFloat(String(offers[0].price).replace(',', '.'));
+                } else if (offers.price) {
+                  price = parseFloat(String(offers.price).replace(',', '.'));
+                }
+              } else if (obj.price) {
+                price = parseFloat(String(obj.price).replace(',', '.'));
+              }
+            }
+            if (obj['@graph']) findProductData(obj['@graph']);
+          }
+        };
+
+        findProductData(data);
+      } catch (e) {
+        // Ignorieren bei fehlerhaftem JSON
+      }
+    });
+
+    // 2. Priorität: OpenGraph & Twitter Metatags
+    if (!title) {
+      title = $('meta[property="og:title"]').attr('content') ||
+              $('meta[name="twitter:title"]').attr('content') ||
+              $('title').text().trim();
+    }
+
+    if (!price) {
+      const ogPrice = $('meta[property="product:price:amount"]').attr('content') ||
+                      $('meta[property="og:price:amount"]').attr('content') ||
+                      $('meta[name="twitter:data1"]').attr('content');
+      if (ogPrice) {
+        const parsed = parseFloat(String(ogPrice).replace(',', '.'));
+        if (!isNaN(parsed)) price = parsed;
+      }
+    }
+
+    // Titel säubern (unnötige Brand-Suffixe wie " - Amazon.de" oder " | IKEA" kürzen)
+    if (title && title.length > 80) {
+      title = title.substring(0, 80) + '...';
+    }
+
+    res.json({
+      title: title || 'Unbekannter Artikel',
+      price: price || null,
+      url
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: 'Konnte URL nicht abrufen: ' + err.message });
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
