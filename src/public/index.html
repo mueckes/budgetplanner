@@ -201,7 +201,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-indigo-700 uppercase mb-1">Plan (€) *</label>
-            <input type="number" step="0.01" id="modalItemExpected" required oninput="syncCostBounds(this.value)" placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+            <input type="number" step="0.01" id="modalItemExpected" required placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold focus:ring-2 focus:ring-indigo-500 focus:outline-none">
           </div>
           <div>
             <label class="block text-xs font-semibold text-rose-700 uppercase mb-1">Max (€)</label>
@@ -444,16 +444,6 @@
       document.getElementById('newItemModal').classList.add('hidden');
     }
 
-    function syncCostBounds(expectedVal) {
-      const val = parseFloat(expectedVal);
-      if (!isNaN(val)) {
-        const minInput = document.getElementById('modalItemMin');
-        const maxInput = document.getElementById('modalItemMax');
-        if (!minInput.value) minInput.value = (val * 0.9).toFixed(2);
-        if (!maxInput.value) maxInput.value = (val * 1.15).toFixed(2);
-      }
-    }
-
     async function scrapeCurrentUrl() {
       const urlInput = document.getElementById('modalItemUrl');
       const url = urlInput ? urlInput.value.trim() : '';
@@ -519,8 +509,13 @@
       const url = document.getElementById('modalItemUrl').value.trim();
       const dueDate = document.getElementById('modalItemDueDate').value;
       const exp = parseNum(document.getElementById('modalItemExpected').value);
-      const min = parseNum(document.getElementById('modalItemMin').value || exp);
-      const max = parseNum(document.getElementById('modalItemMax').value || exp);
+      const minInput = document.getElementById('modalItemMin');
+      const maxInput = document.getElementById('modalItemMax');
+      // Nur leere Felder berechnen; explizite Eingaben einschließlich null bleiben erhalten.
+      if (minInput.value === '') minInput.value = (exp * 0.9).toFixed(2);
+      if (maxInput.value === '') maxInput.value = (exp * 1.15).toFixed(2);
+      const min = parseNum(minInput.value);
+      const max = parseNum(maxInput.value);
 
       try {
         await api('/api/items', 'POST', {
