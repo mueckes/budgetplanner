@@ -69,6 +69,11 @@ nodes:
     endpoints: ["POST /api/scrape-url"]
 
   # --- FRONTEND UI ---
+  ui:theme:
+    type: presentation
+    assets: [src/public/hausplan-wallpaper.webp]
+    files: [src/public/index.html, src/public/login.html]
+    note: "Helles Hausplan-Wallpaper mit Aufhellung, deckende Karten und grüne Akzente."
   ui:dashboard:
     file: src/public/index.html
     sections: [statMin, statExpected, statMax, barDiff]

@@ -5,12 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Anmeldung – BudgetPlanner</title>
   <style>
-    body { font-family: system-ui, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    body { font-family: system-ui, sans-serif; background-color: #f5faf7; background-image: linear-gradient(rgba(248,252,249,.30), rgba(248,252,249,.30)), url('/hausplan-wallpaper.webp'); background-position: center top; background-size: cover; background-attachment: fixed; background-repeat: no-repeat; color: #1e293b; margin: 0; min-height: 100vh; display: grid; place-items: center; }
     main { box-sizing: border-box; background: white; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 2rem; width: min(90vw, 24rem); box-shadow: 0 4px 15px #0f172a10; }
     label { display: block; font-size: .85rem; font-weight: 600; margin: 1rem 0 .3rem; }
     input, button { box-sizing: border-box; width: 100%; font: inherit; padding: .65rem; border: 1px solid #cbd5e1; border-radius: .5rem; }
-    button { margin-top: 1.2rem; color: white; background: #4f46e5; border: 0; cursor: pointer; }
+    button { margin-top: 1.2rem; color: white; background: #047857; border: 0; cursor: pointer; }
+    button:hover { background: #065f46; }
+    input:focus-visible, button:focus-visible { outline: 3px solid #6ee7b7; outline-offset: 2px; }
     p { color: #be123c; font-size: .9rem; }
+    @media (max-width: 640px) { body { background-attachment: scroll; background-size: auto 100vh; } }
   </style>
 </head>
 <body>
