@@ -11,6 +11,8 @@
 - Anmeldung über HTTPS erforderlich: Das Sitzungs-Cookie ist Secure, HttpOnly und SameSite=Strict; es läuft nach zwölf Stunden ab. Schreibende API-Anfragen benötigen einen zusätzlichen Header als CSRF-Schutz. CORS darf nicht ungeprüft für fremde Origins freigegeben werden.
 - Ein externer Nginx kann Basic Auth und Netzfreigaben ergänzen; die tatsächlich laufende Konfiguration liegt außerhalb des Repositorys und muss gesondert geprüft werden. Eine vorgeschaltete Anmeldung ersetzt die Anwendungskonten nicht.
 - `src/auth.js` prüft die Besitzerzuordnung für Projekt-, Kategorie- und Kostenpunkt-Routen anhand der Pfade; neue Routen müssen ausdrücklich berücksichtigt und negativ getestet werden. Cookie-Tokens werden nur als SHA-256-Hash in SQLite gespeichert.
-- Login und Passwortprüfung nutzen synchrones `scryptSync` mit Node-Standardparametern. Fehlversuche werden pro IP und Benutzername im Speicher auf zehn pro 15 Minuten begrenzt; Neustarts löschen die Zähler. Unterschiedliche Benutzernamen teilen sich kein globales Limit.
+- Neue Passwörter: scrypt N=131072, r=8, p=1 mit versioniertem Hash. Ältere Hashes werden bei erfolgreicher Anmeldung umgestellt. Web-Prüfungen laufen asynchron, höchstens zwei gleichzeitig; das Admin-Werkzeug nutzt synchrones scrypt.
+- Anmeldelimits: zehn Versuche je IP und Konto sowie 60 je IP in 15 Minuten. Speicherbasiert, gelten nur je Prozess und gehen beim Neustart verloren; gemeinsame Proxy-IP kann mehrere Nutzer betreffen.
 - Express vertraut Proxy-Headern nur von Loopback-Adressen. Bei Docker-Bridge-Networking kann die Anwendung statt der tatsächlichen Client-IP eine Gateway-Adresse sehen. Die tatsächliche Proxy-Kette ist vor einer Rate-Limit-Konfiguration zu verifizieren.
 - Bekannte Restrisiken und fehlende Prüfungen stehen in `security.md`; die isolierten Tests ersetzen weder Produktionstests noch eine unabhängige Sicherheitsprüfung.
+

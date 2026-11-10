@@ -2,7 +2,7 @@
 meta:
   project: budgetplanner
   architecture: monolith-docker-sqlite
-  version: 1.4.0
+  version: 1.5.0
   verified_at: 2026-11-10
   verified_commit: 48e92b1210d4bbea408a9d5a6fb3eedcc842f4ce
 
@@ -78,7 +78,7 @@ nodes:
   # --- FRONTEND UI ---
   ui:theme:
     type: presentation
-    assets: [src/public/hausplan-wallpaper.webp]
+    assets: [src/public/hausplan-wallpaper.webp, src/public/tailwind.css]
     files: [src/public/index.html, src/public/login.html]
     note: "Helles Hausplan-Wallpaper mit Aufhellung, deckende Karten und grüne Akzente."
   ui:dashboard:
@@ -125,8 +125,12 @@ nodes:
     compose: docker-compose.yml
   infra:tests:
     type: verification
-    files: [tests/smoke-node-sqlite.js, tests/accounts-node-sqlite.js]
-    note: isolated SQLite adapter tests using node:sqlite, not the production driver
+    files: [tests/smoke-node-sqlite.js, tests/accounts-node-sqlite.js, tests/native-sqlite.js, tests/money.js]
+    note: API isolation tests use node:sqlite; native-sqlite tests backup with better-sqlite3
+  infra:backup:
+    file: src/backup.js
+    spec: BACKUP.md
+    note: consistent SQLite backup includes accounts and all projects
   infra:static_html:
     file: src/server.js
     note: HTML responses use Cache-Control no-store to avoid stale interfaces after deployment
@@ -141,3 +145,4 @@ edges:
   - { from: concept:accounts, rel: protects, to: [db:sqlite, api:projects, api:items, api:categories] }
   - { from: security:review, rel: documents, to: [api:auth, api:scraper, infra:container] }
   - { from: infra:reverse_proxy,  rel: protects,    to: [api:projects, ui:views] }
+

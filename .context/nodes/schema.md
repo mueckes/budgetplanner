@@ -11,3 +11,4 @@ Fremdschlüssel sind aktiviert; Projekt → Kategorien → Kostenpunkte und Benu
 Der JSON-Export enthält ein einzelnes Projekt; der validierte Import der Formate 1.0 und 2.0 legt atomar ein neues Projekt des angemeldeten Kontos an. Die Weboberfläche begrenzt Importdateien auf 100.000 Bytes, Express verwendet zusätzlich das Standard-JSON-Limit. Ein vollständiges Export/Import-Roundtrip für große Projekte ist deshalb nicht garantiert. Ein Projekt-Export enthält weder Konten noch Sitzungen und ist kein vollständiges Datenbank-Backup.
 
 Geldwerte sind REAL und Summen JavaScript-Fließkommazahlen; Rundungsabweichungen sind möglich. Eine konkrete Migration auf Cent als Integer muss Altwerte und Backups berücksichtigen.
+

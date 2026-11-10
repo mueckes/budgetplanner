@@ -41,7 +41,9 @@ async function request(path, method = 'GET', body) {
   return { status: response.status, data: await response.json() };
 }
 (async () => {
-  assert.equal((await fetch(base + '/')).headers.get('cache-control'), 'no-store');
+  const page = await fetch(base + '/');
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  assert.match(page.headers.get('content-security-policy'), /default-src 'self'/);
   assert.equal((await request('/api/auth/login', 'POST', { username: 'tester', password: 'test-passwort-sicher' })).status, 200);
   const old = await request('/api/projects/1');
   assert.equal(old.data.project.budget, null);
@@ -73,3 +75,4 @@ async function request(path, method = 'GET', body) {
   console.log('Smoke tests passed');
   process.exit(0);
 })().catch(error => { console.error(error); process.exit(1); });
+

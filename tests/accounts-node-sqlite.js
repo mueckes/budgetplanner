@@ -28,7 +28,11 @@ Module._load = function (request, ...args) {
 const db = require('../src/db');
 const { hashPassword } = require('../src/auth');
 const add = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)');
-const a = add.run('anna', hashPassword('beispiel-passwort-anna')).lastInsertRowid;
+// Legacy-Hash aus älteren Versionen muss beim ersten Login migriert werden.
+const crypto = require('node:crypto');
+const salt = crypto.randomBytes(16).toString('hex');
+const legacy = salt + ':' + crypto.scryptSync('beispiel-passwort-anna', salt, 64).toString('hex');
+const a = add.run('anna', legacy).lastInsertRowid;
 const b = add.run('bert', hashPassword('beispiel-passwort-bert')).lastInsertRowid;
 db.prepare('UPDATE projects SET owner_id = ? WHERE id = 1').run(a);
 process.env.PORT = '39072';
@@ -50,6 +54,7 @@ async function request(path, method = 'GET', body, cookie, csrf = true) {
   assert.match(login.setCookie, /Secure/i);
   assert.match(login.setCookie, /SameSite=Strict/i);
   const anna = login.cookie;
+  assert.match(db.prepare('SELECT password_hash FROM users WHERE id = ?').get(a).password_hash, /^scrypt1:/);
   const bert = (await request('/api/auth/login', 'POST', { username: 'bert', password: 'beispiel-passwort-bert' })).cookie;
   assert.ok(anna && bert);
   assert.equal((await request('/api/projects', 'GET', undefined, anna)).data.length, 1);
@@ -90,3 +95,4 @@ async function request(path, method = 'GET', body, cookie, csrf = true) {
   console.log('Accounts isolation tests passed');
   process.exit(0);
 })().catch(error => { console.error(error); process.exit(1); });
+

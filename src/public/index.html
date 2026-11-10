@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BudgetPlanner</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/tailwind.css">
   <style>
     /* Nur der Hintergrund wird aufgehellt; Karten bleiben vollständig deckend. */
     body {
@@ -739,7 +739,14 @@
     // Links nur mit sicheren Web-Protokollen ausgeben.
     function safeUrl(value) { try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.href : ''; } catch { return ''; } }
     function fmt(val) { return (Number(val) || 0).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' }); }
-    function parseNum(val) { return typeof val === 'number' ? val : parseFloat(String(val).replace(',', '.')) || 0; }
+    function parseNum(val) {
+      if (typeof val === 'number') return val;
+      const text = String(val).trim();
+      // Deutsche Tausenderpunkte und Komma sind erlaubt, unvollständige Eingaben nicht.
+      if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(text)) return Number(text.replace(/\./g, '').replace(',', '.'));
+      if (!/^\d+(?:[.,]\d{1,2})?$/.test(text)) return NaN;
+      return Number(text.replace(',', '.'));
+    }
     function escapeHtml(text) { return String(text || '').replace(/[&<>"']/g, m => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[m]); }
     function handleKey(e) { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }
 
@@ -748,7 +755,9 @@
       loadProject(currentProjectId);
     }
     async function updateItemPrice(id, field, value) {
-      return updateItem(id, field, parseNum(value));
+      const amount = parseNum(value);
+      if (!Number.isFinite(amount) || amount > 1e9) { showError('Bitte einen gültigen Betrag mit höchstens zwei Nachkommastellen eingeben.'); return loadProject(currentProjectId); }
+      return updateItem(id, field, amount);
     }
     function deleteItem(id) {
       showAction({ title: 'Kostenpunkt löschen', description: 'Der Kostenpunkt wird unwiderruflich gelöscht.', submit: 'Kostenpunkt löschen', danger: true, onSubmit: async () => {
@@ -909,7 +918,7 @@
       const file = input.files[0];
       if (!file) return;
       try {
-        if (file.size > 100000) throw new Error('Datei ist zu groß (maximal 100 KB)');
+        if (file.size > 10 * 1024 * 1024) throw new Error('Datei ist zu groß (maximal 10 MB)');
         const data = JSON.parse(await file.text());
         const result = await api('/api/import', 'POST', data);
         await init(result.id);
@@ -928,3 +937,4 @@
   </script>
 </body>
 </html>
+
