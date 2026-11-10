@@ -72,6 +72,10 @@ nodes:
     file: src/public/index.html
     functions: [showAction, editProject, editCategory, editPayment, deleteProject, deleteCategory]
     note: reusable in-page form and confirmation dialogs with inline errors
+  ui:suggestions:
+    file: src/public/index.html
+    functions: [suggestedCategory, addSuggestedItem]
+    note: category is selectable; keyword match preselects a suitable existing category
   ui:views:
     file: src/public/index.html
     modes: [categories, timeline]
@@ -80,6 +84,9 @@ nodes:
   infra:reverse_proxy:
     spec: .context/nodes/deployment.md
     components: [nginx, basic_auth, dual_ssl, docker_bridge]
+  infra:static_html:
+    file: src/server.js
+    note: HTML responses use Cache-Control no-store to avoid stale interfaces after deployment
 
 edges:
   - { from: concept:pert,         rel: implements,  to: [db:sqlite, ui:dashboard] }

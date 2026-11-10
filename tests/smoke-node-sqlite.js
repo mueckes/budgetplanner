@@ -35,6 +35,7 @@ async function request(path, method = 'GET', body) {
   return { status: response.status, data: await response.json() };
 }
 (async () => {
+  assert.equal((await fetch(base + '/')).headers.get('cache-control'), 'no-store');
   const old = await request('/api/projects/1');
   assert.equal(old.data.project.budget, null);
   assert.equal((await request('/api/projects', 'POST', { name: 'Ohne Budget' })).status, 200);
