@@ -54,6 +54,16 @@ async function request(path, method = 'GET', body) {
   assert.ok(project.categories.length > 0);
   const categoryId = project.categories[0].id;
   const item = await request('/api/items', 'POST', { categoryId, name: 'Transport', costMin: 10, costExpected: 40, costMax: 60 });
+  // Gelöschte Grenzen übernehmen den Planwert; explizite Null bleibt eine Eingabe.
+  assert.equal((await request('/api/items/' + item.data.id, 'PUT', { costMin: null, costMax: null })).status, 200);
+  let costs = (await request('/api/projects/' + id)).data.categories[0].items[0];
+  assert.equal(costs.cost_min, 40); assert.equal(costs.cost_max, 40);
+  assert.equal((await request('/api/items/' + item.data.id, 'PUT', { costMin: 0, costMax: 0 })).status, 200);
+  costs = (await request('/api/projects/' + id)).data.categories[0].items[0];
+  assert.equal(costs.cost_min, 0); assert.equal(costs.cost_max, 0);
+  assert.equal((await request('/api/items/' + item.data.id, 'PUT', { costMin: null, costMax: null, costExpected: 55 })).status, 200);
+  costs = (await request('/api/projects/' + id)).data.categories[0].items[0];
+  assert.equal(costs.cost_min, 55); assert.equal(costs.cost_max, 55);
   assert.equal((await request('/api/items/' + item.data.id, 'PUT', { status: 'paid' })).status, 400);
   assert.equal((await request('/api/items/' + item.data.id, 'PUT', { paidDate: '2026-02-30' })).status, 400);
   assert.equal((await request('/api/items/' + item.data.id, 'PUT', { status: 'paid', actualCost: 30, paidDate: '2026-11-10' })).status, 200);
@@ -75,4 +85,3 @@ async function request(path, method = 'GET', body) {
   console.log('Smoke tests passed');
   process.exit(0);
 })().catch(error => { console.error(error); process.exit(1); });
-

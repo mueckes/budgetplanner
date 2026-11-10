@@ -282,7 +282,7 @@
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block text-xs font-semibold text-emerald-700 uppercase mb-1">Min (€)</label>
-            <input type="number" step="0.01" id="modalItemMin" placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <input type="number" step="0.01" id="modalItemMin" oninput="this.dataset.edited = '1'" placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </div>
           <div>
             <label class="block text-xs font-semibold text-emerald-700 uppercase mb-1">Plan (€) *</label>
@@ -290,7 +290,7 @@
           </div>
           <div>
             <label class="block text-xs font-semibold text-rose-700 uppercase mb-1">Max (€)</label>
-            <input type="number" step="0.01" id="modalItemMax" placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+            <input type="number" step="0.01" id="modalItemMax" oninput="this.dataset.edited = '1'" placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none">
           </div>
         </div>
 
@@ -607,8 +607,10 @@
       document.getElementById('modalItemUrl').value = '';
       document.getElementById('modalItemName').value = '';
       document.getElementById('modalItemMin').value = '';
+      delete document.getElementById('modalItemMin').dataset.edited;
       document.getElementById('modalItemExpected').value = '';
       document.getElementById('modalItemMax').value = '';
+      delete document.getElementById('modalItemMax').dataset.edited;
       document.getElementById('modalItemDueDate').value = '';
       const statusEl = document.getElementById('scrapeStatus');
       if (statusEl) statusEl.classList.add('hidden');
@@ -686,9 +688,9 @@
       const exp = parseNum(document.getElementById('modalItemExpected').value);
       const minInput = document.getElementById('modalItemMin');
       const maxInput = document.getElementById('modalItemMax');
-      // Nur leere Felder berechnen; explizite Eingaben einschließlich null bleiben erhalten.
-      if (minInput.value === '') minInput.value = (exp * 0.9).toFixed(2);
-      if (maxInput.value === '') maxInput.value = (exp * 1.15).toFixed(2);
+      // Unberührte Grenzen berechnen; bewusst gelöschte Grenzen übernehmen den Planwert.
+      if (minInput.value === '') minInput.value = (minInput.dataset.edited ? exp : exp * 0.9).toFixed(2);
+      if (maxInput.value === '') maxInput.value = (maxInput.dataset.edited ? exp : exp * 1.15).toFixed(2);
       const min = parseNum(minInput.value);
       const max = parseNum(maxInput.value);
 
@@ -755,6 +757,8 @@
       loadProject(currentProjectId);
     }
     async function updateItemPrice(id, field, value) {
+      // null signalisiert dem Server: Grenze auf den aktuellen Planwert setzen.
+      if ((field === 'costMin' || field === 'costMax') && !value.trim()) return updateItem(id, field, null);
       const amount = parseNum(value);
       if (!Number.isFinite(amount) || amount > 1e9) { showError('Bitte einen gültigen Betrag mit höchstens zwei Nachkommastellen eingeben.'); return loadProject(currentProjectId); }
       return updateItem(id, field, amount);
@@ -937,4 +941,3 @@
   </script>
 </body>
 </html>
-
