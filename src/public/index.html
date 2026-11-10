@@ -121,6 +121,22 @@
 
   </main>
 
+  <!-- Gemeinsamer Dialog für Bearbeitung und Löschbestätigung -->
+  <div id="actionModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] hidden flex items-center justify-center p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="actionTitle" class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+      <h3 id="actionTitle" class="text-lg font-bold text-slate-800 mb-4"></h3>
+      <form id="actionForm" class="space-y-4">
+        <p id="actionDescription" class="text-sm text-slate-600 hidden"></p>
+        <div id="actionFields" class="space-y-4"></div>
+        <p id="actionError" role="alert" class="text-sm text-rose-700 hidden"></p>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="actionCancel" type="button" class="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Abbrechen</button>
+          <button id="actionSubmit" type="submit" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg">Speichern</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal Projekt anlegen -->
   <div id="newProjectModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
@@ -396,23 +412,14 @@
       const res = await fetch(`/api/projects/${currentProjectId}`);
       const data = await res.json();
       const firstCat = data.categories[0];
-      if (!firstCat) {
-        alert('Bitte erstelle zuerst eine Kategorie.');
-        return;
-      }
-      const exp = parseNum(prompt(`Erwartete Kosten für "${name}" (€):`, '50') || 50);
-      await fetch('/api/items', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-          categoryId: firstCat.id,
-          name,
-          costExpected: exp,
-          costMin: exp * 0.8,
-          costMax: exp * 1.3
-        })
-      });
-      loadProject(currentProjectId);
+      if (!firstCat) return showError('Bitte erstelle zuerst eine Kategorie.');
+      showAction({ title: 'Vorschlag hinzufügen', description: name, fields: [
+        { name: 'amount', label: 'Erwartete Kosten in €', type: 'number', value: '50', required: true }
+      ], onSubmit: async values => {
+        const exp = Number(values.amount);
+        await api('/api/items', 'POST', { categoryId: firstCat.id, name, costExpected: exp, costMin: exp * 0.8, costMax: exp * 1.3 });
+        await loadProject(currentProjectId);
+      } });
     }
 
     function exportProject() {
@@ -454,7 +461,7 @@
       const btn = document.getElementById('btnScrape');
 
       if (!url || !url.startsWith('http')) {
-        alert('Bitte gib eine gültige URL mit http:// oder https:// ein.');
+        showError('Bitte gib eine gültige URL mit http:// oder https:// ein.');
         return;
       }
 
@@ -527,7 +534,7 @@
         });
         closeItemModal();
         await loadProject(currentProjectId);
-      } catch (error) { alert(error.message); }
+      } catch (error) { showError(error.message); }
     }
 
     // Modal Projekt Handling
@@ -548,13 +555,14 @@
         const created = await api('/api/projects', 'POST', { name, template: template || null, budget: budgetInput === '' ? null : Number(budgetInput) });
         closeProjectModal();
         await init(created.id);
-      } catch (error) { alert(error.message); }
+      } catch (error) { showError(error.message); }
     }
 
-    async function addCategoryPrompt() {
-      const name = prompt('Name der Kategorie:');
-      if (!name) return;
-      try { await api('/api/categories', 'POST', { projectId: currentProjectId, name }); await loadProject(currentProjectId); } catch (error) { alert(error.message); }
+    function addCategoryPrompt() {
+      if (!currentProjectId) return showError('Bitte erstelle zuerst ein Projekt.');
+      showAction({ title: 'Neue Kategorie', fields: [{ name: 'name', label: 'Kategoriename', required: true }], submit: 'Erstellen', onSubmit: async values => {
+        await api('/api/categories', 'POST', { projectId: currentProjectId, name: values.name }); await loadProject(currentProjectId);
+      } });
     }
 
     // Helpers
@@ -566,21 +574,21 @@
     function handleKey(e) { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }
 
     async function updateItem(id, field, value) {
-      try { await api(`/api/items/${id}`, 'PUT', { [field]: value }); } catch (error) { alert(error.message); }
+      try { await api(`/api/items/${id}`, 'PUT', { [field]: value }); } catch (error) { showError(error.message); }
       loadProject(currentProjectId);
     }
     async function updateItemPrice(id, field, value) {
       return updateItem(id, field, parseNum(value));
     }
-    async function deleteItem(id) {
-      if (!confirm('Posten löschen?')) return;
-      await fetch(`/api/items/${id}`, { method: 'DELETE' });
-      loadProject(currentProjectId);
+    function deleteItem(id) {
+      showAction({ title: 'Posten löschen', description: 'Der Posten wird unwiderruflich gelöscht.', submit: 'Posten löschen', danger: true, onSubmit: async () => {
+        await api(`/api/items/${id}`, 'DELETE'); await loadProject(currentProjectId);
+      } });
     }
-    async function editUrlPrompt(id, currentUrl) {
-      const url = prompt('Link zum Angebot/Produkt:', currentUrl);
-      if (url === null) return;
-      await updateItem(id, 'url', url);
+    function editUrlPrompt(id, currentUrl) {
+      showAction({ title: 'Produktlink bearbeiten', fields: [{ name: 'url', label: 'Link zum Angebot oder Produkt', type: 'url', value: currentUrl }], onSubmit: async values => {
+        await api(`/api/items/${id}`, 'PUT', { url: values.url }); await loadProject(currentProjectId);
+      } });
     }
 
     // Gemeinsame Fehlerbehandlung für verwaltende Aktionen.
@@ -590,49 +598,106 @@
       if (!response.ok) throw new Error(result.error || 'Anfrage fehlgeschlagen');
       return result;
     }
-    async function editProject() {
+    // Erstellt Felder mit DOM-APIs; Nutzereingaben werden nie als HTML eingesetzt.
+    function showAction({ title, description = '', fields = [], submit = 'Speichern', danger = false, onSubmit }) {
+      const modal = document.getElementById('actionModal');
+      const form = document.getElementById('actionForm');
+      const container = document.getElementById('actionFields');
+      const error = document.getElementById('actionError');
+      const button = document.getElementById('actionSubmit');
+      const previousFocus = document.activeElement;
+      const inputs = {};
+      document.getElementById('actionTitle').textContent = title;
+      const detail = document.getElementById('actionDescription');
+      detail.textContent = description;
+      detail.classList.toggle('hidden', !description);
+      error.textContent = '';
+      error.classList.add('hidden');
+      container.replaceChildren();
+      for (const field of fields) {
+        const label = document.createElement('label');
+        label.className = 'block text-xs font-semibold text-slate-500 uppercase';
+        label.textContent = field.label;
+        const input = document.createElement(field.options ? 'select' : 'input');
+        input.className = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-normal normal-case text-slate-800';
+        if (field.options) {
+          for (const [value, text] of field.options) input.add(new Option(text, value));
+        } else {
+          input.type = field.type || 'text';
+          if (field.type === 'number') { input.min = field.min ?? '0'; input.max = field.max ?? '1000000000'; input.step = field.step ?? '0.01'; }
+        }
+        input.required = !!field.required;
+        input.value = field.value ?? '';
+        label.appendChild(input);
+        container.appendChild(label);
+        inputs[field.name] = input;
+      }
+      button.textContent = submit;
+      button.className = `px-4 py-2 text-sm text-white font-medium rounded-lg ${danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-indigo-600 hover:bg-indigo-700'}`;
+      button.disabled = false;
+      const close = () => { modal.classList.add('hidden'); document.removeEventListener('keydown', onKey); previousFocus?.focus(); };
+      const onKey = event => { if (event.key === 'Escape' && !button.disabled) close(); };
+      document.getElementById('actionCancel').onclick = close;
+      document.addEventListener('keydown', onKey);
+      form.onsubmit = async event => {
+        event.preventDefault();
+        button.disabled = true;
+        error.classList.add('hidden');
+        try { await onSubmit(Object.fromEntries(Object.entries(inputs).map(([name, input]) => [name, input.value]))); close(); }
+        catch (err) { error.textContent = err.message; error.classList.remove('hidden'); }
+        finally { button.disabled = false; }
+      };
+      modal.classList.remove('hidden');
+      (Object.values(inputs)[0] || button).focus();
+    }
+    function showError(message) {
+      showAction({ title: 'Hinweis', description: message, submit: 'Schließen', onSubmit: async () => {} });
+    }
+    function editProject() {
       if (!currentProject) return;
-      const name = prompt('Projektname:', currentProject.name);
-      if (name === null) return;
-      const budget = prompt('Budget in Euro (leer = kein Budget):', currentProject.budget ?? '');
-      if (budget === null) return;
-      const value = budget.trim() === '' ? null : Number(budget.replace(',', '.'));
-      if (value !== null && (!Number.isFinite(value) || value < 0)) return alert('Bitte ein gültiges Budget eingeben.');
-      try { await api(`/api/projects/${currentProjectId}`, 'PUT', { name, budget: value }); await init(currentProjectId); } catch (error) { alert(error.message); }
+      const id = currentProjectId;
+      showAction({ title: 'Projekt bearbeiten', fields: [
+        { name: 'name', label: 'Projektname', value: currentProject.name, required: true },
+        { name: 'budget', label: 'Budget in € (optional)', type: 'number', value: currentProject.budget ?? '' }
+      ], onSubmit: async values => {
+        await api(`/api/projects/${id}`, 'PUT', { name: values.name, budget: values.budget === '' ? null : Number(values.budget) });
+        await init(id);
+      } });
     }
     async function archiveProject() {
       if (!currentProject) return;
-      try { await api(`/api/projects/${currentProjectId}`, 'PUT', { archived: currentProject.archived ? 0 : 1 }); await init(currentProjectId); } catch (error) { alert(error.message); }
+      try { await api(`/api/projects/${currentProjectId}`, 'PUT', { archived: currentProject.archived ? 0 : 1 }); await init(currentProjectId); } catch (error) { showError(error.message); }
     }
-    async function deleteProject() {
-      if (!currentProject || !confirm('Projekt mit allen Kategorien und Posten unwiderruflich löschen?')) return;
-      try { await api(`/api/projects/${currentProjectId}`, 'DELETE'); await init(); } catch (error) { alert(error.message); }
+    function deleteProject() {
+      if (!currentProject) return;
+      const id = currentProjectId;
+      showAction({ title: 'Projekt löschen', description: 'Das Projekt und alle enthaltenen Kategorien und Posten werden unwiderruflich gelöscht.', submit: 'Projekt löschen', danger: true, onSubmit: async () => {
+        await api(`/api/projects/${id}`, 'DELETE'); await init();
+      } });
     }
-    async function editCategory(id, name, order) {
-      const next = prompt('Kategoriename:', name);
-      if (next === null) return;
-      const position = prompt('Sortierreihenfolge (kleinere Zahl zuerst):', order);
-      if (position === null) return;
-      try { await api(`/api/categories/${id}`, 'PUT', { name: next, sortOrder: Number(position) }); await loadProject(currentProjectId); } catch (error) { alert(error.message); }
+    function editCategory(id, name, order) {
+      showAction({ title: 'Kategorie bearbeiten', fields: [
+        { name: 'name', label: 'Kategoriename', value: name, required: true },
+        { name: 'order', label: 'Sortierreihenfolge (kleinere Zahl zuerst)', type: 'number', value: order, min: '-100000', max: '100000', step: '1', required: true }
+      ], onSubmit: async values => {
+        await api(`/api/categories/${id}`, 'PUT', { name: values.name, sortOrder: Number(values.order) }); await loadProject(currentProjectId);
+      } });
     }
-    async function deleteCategory(id) {
-      if (!confirm('Kategorie und alle enthaltenen Posten unwiderruflich löschen?')) return;
-      try { await api(`/api/categories/${id}`, 'DELETE'); await loadProject(currentProjectId); } catch (error) { alert(error.message); }
+    function deleteCategory(id) {
+      showAction({ title: 'Kategorie löschen', description: 'Die Kategorie und alle enthaltenen Posten werden unwiderruflich gelöscht.', submit: 'Kategorie löschen', danger: true, onSubmit: async () => {
+        await api(`/api/categories/${id}`, 'DELETE'); await loadProject(currentProjectId);
+      } });
     }
-    async function editPayment(id, button) {
-      const choices = { geplant: 'planned', bestellt: 'ordered', bezahlt: 'paid' };
-      const names = { planned: 'geplant', ordered: 'bestellt', paid: 'bezahlt' };
-      const choice = prompt('Status: geplant, bestellt oder bezahlt', names[button.dataset.status] || 'geplant');
-      if (choice === null) return;
-      const status = choices[choice.trim().toLowerCase()];
-      if (!status) return alert('Unbekannter Status');
-      const amount = prompt('Tatsächlicher Betrag in Euro (leer = nicht erfasst):', button.dataset.actual);
-      if (amount === null) return;
-      const actualCost = amount.trim() ? Number(amount.replace(',', '.')) : null;
-      if (actualCost !== null && (!Number.isFinite(actualCost) || actualCost < 0)) return alert('Bitte einen gültigen Betrag eingeben.');
-      const date = prompt('Zahlungsdatum JJJJ-MM-TT (optional):', button.dataset.date);
-      if (date === null) return;
-      try { await api(`/api/items/${id}`, 'PUT', { status, actualCost, paidDate: date.trim() }); await loadProject(currentProjectId); } catch (error) { alert(error.message); }
+    function editPayment(id, button) {
+      showAction({ title: 'Status und Zahlung', fields: [
+        { name: 'status', label: 'Status', value: button.dataset.status, options: [['planned', 'Geplant'], ['ordered', 'Bestellt'], ['paid', 'Bezahlt']] },
+        { name: 'amount', label: 'Tatsächlicher Betrag in € (optional)', type: 'number', value: button.dataset.actual },
+        { name: 'date', label: 'Zahlungsdatum (optional)', type: 'date', value: button.dataset.date }
+      ], onSubmit: async values => {
+        if (values.status === 'paid' && values.amount === '') throw new Error('Bitte den tatsächlichen Betrag für den bezahlten Posten eingeben.');
+        await api(`/api/items/${id}`, 'PUT', { status: values.status, actualCost: values.amount === '' ? null : Number(values.amount), paidDate: values.date });
+        await loadProject(currentProjectId);
+      } });
     }
     async function importProject(input) {
       const file = input.files[0];
@@ -642,7 +707,7 @@
         const data = JSON.parse(await file.text());
         const result = await api('/api/import', 'POST', data);
         await init(result.id);
-      } catch (error) { alert('Import fehlgeschlagen: ' + error.message); }
+      } catch (error) { showError('Import fehlgeschlagen: ' + error.message); }
       finally { input.value = ''; }
     }
 
