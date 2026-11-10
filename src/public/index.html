@@ -615,10 +615,13 @@
       error.classList.add('hidden');
       container.replaceChildren();
       for (const field of fields) {
+        const group = document.createElement('div');
         const label = document.createElement('label');
         label.className = 'block text-xs font-semibold text-slate-500 uppercase';
         label.textContent = field.label;
         const input = document.createElement(field.options ? 'select' : 'input');
+        input.id = `action-${field.name}`;
+        label.htmlFor = input.id;
         input.className = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-normal normal-case text-slate-800';
         if (field.options) {
           for (const [value, text] of field.options) input.add(new Option(text, value));
@@ -628,8 +631,8 @@
         }
         input.required = !!field.required;
         input.value = field.value ?? '';
-        label.appendChild(input);
-        container.appendChild(label);
+        group.append(label, input);
+        container.appendChild(group);
         inputs[field.name] = input;
       }
       button.textContent = submit;
