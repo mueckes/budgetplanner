@@ -2,14 +2,17 @@
 meta:
   project: budgetplanner
   architecture: monolith-docker-sqlite
-  version: 1.3.0
+  version: 1.5.0
+  verified_at: 2026-11-10
+  verified_commit: 48e92b1210d4bbea408a9d5a6fb3eedcc842f4ce
 
 nodes:
   # --- DOMAIN CONCEPTS ---
-  concept:pert:
+  concept:cost_estimation:
     type: concept
-    spec: .context/nodes/pert_logic.md
+    spec: .context/nodes/cost_estimation.md
     defines: [cost_min, cost_expected, cost_max, bandwidth]
+    note: sums user-supplied values; no PERT weighting
   concept:templates:
     type: concept
     instances: [moving, renovation, empty]
@@ -64,6 +67,10 @@ nodes:
     file: src/auth.js
     endpoints: ["POST /api/auth/login", "GET /api/auth/me", "PUT /api/auth/profile", "PUT /api/auth/password", "POST /api/auth/logout"]
     note: all API routes require login except login; project and child resources enforce ownership
+  security:review:
+    type: analysis
+    spec: .context/nodes/security.md
+    note: code review and known limitations; no claim of a comprehensive security audit
   api:scraper:
     file: src/server.js
     endpoints: ["POST /api/scrape-url"]
@@ -71,7 +78,7 @@ nodes:
   # --- FRONTEND UI ---
   ui:theme:
     type: presentation
-    assets: [src/public/hausplan-wallpaper.webp]
+    assets: [src/public/hausplan-wallpaper.webp, src/public/tailwind.css]
     files: [src/public/index.html, src/public/login.html]
     note: "Helles Hausplan-Wallpaper mit Aufhellung, deckende Karten und grüne Akzente."
   ui:dashboard:
@@ -109,17 +116,33 @@ nodes:
   # --- INFRASTRUCTURE ---
   infra:reverse_proxy:
     spec: .context/nodes/deployment.md
-    components: [nginx, basic_auth, dual_ssl, docker_bridge]
+    components: [nginx, basic_auth, docker_bridge]
+    note: external server configuration is not stored in this repository
+  infra:container:
+    type: deployment
+    file: Dockerfile
+    spec: .context/nodes/deployment.md
+    compose: docker-compose.yml
+  infra:tests:
+    type: verification
+    files: [tests/smoke-node-sqlite.js, tests/accounts-node-sqlite.js, tests/native-sqlite.js, tests/money.js]
+    note: API isolation tests use node:sqlite; native-sqlite tests backup with better-sqlite3
+  infra:backup:
+    file: src/backup.js
+    spec: BACKUP.md
+    note: consistent SQLite backup includes accounts and all projects
   infra:static_html:
     file: src/server.js
     note: HTML responses use Cache-Control no-store to avoid stale interfaces after deployment
 
 edges:
-  - { from: concept:pert,         rel: implements,  to: [db:sqlite, ui:dashboard] }
+  - { from: concept:cost_estimation, rel: uses, to: [db:sqlite, ui:dashboard] }
   - { from: concept:url_scraping, rel: served_by,   to: api:scraper }
   - { from: api:scraper,          rel: triggers,    to: ui:modal_item }
   - { from: concept:templates,    rel: seeds,       to: db:sqlite }
   - { from: concept:project_budget, rel: uses, to: [db:sqlite, ui:dashboard] }
   - { from: concept:payment, rel: uses, to: [db:sqlite, api:items] }
   - { from: concept:accounts, rel: protects, to: [db:sqlite, api:projects, api:items, api:categories] }
+  - { from: security:review, rel: documents, to: [api:auth, api:scraper, infra:container] }
   - { from: infra:reverse_proxy,  rel: protects,    to: [api:projects, ui:views] }
+

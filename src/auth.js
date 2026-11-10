@@ -8,18 +8,32 @@ const hashToken = token => crypto.createHash('sha256').update(token).digest('hex
 const validUsername = value => typeof value === 'string' && /^[a-zA-Z0-9_.-]{3,40}$/.test(value);
 const validPassword = value => typeof value === 'string' && value.length >= 12 && Buffer.byteLength(value, 'utf8') <= 256;
 
-// Individuelles Salt und scrypt erschweren Offline-Passwortangriffe.
+// Versionierte Hashes: alte Salt:Hash-Werte bleiben bis zur erfolgreichen Anmeldung gültig.
+const strong = { N: 131072, r: 8, p: 1, maxmem: 160 * 1024 * 1024 };
+const derive = (password, salt, options) => new Promise((resolve, reject) => crypto.scrypt(password, salt, 64, options, (err, key) => err ? reject(err) : resolve(key)));
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  return salt + ':' + crypto.scryptSync(password, salt, 64).toString('hex');
+  return 'scrypt1:' + salt + ':' + crypto.scryptSync(password, salt, 64, strong).toString('hex');
 }
-function verifyPassword(password, stored) {
-  const [salt, hash] = stored.split(':');
-  const expected = Buffer.from(hash, 'hex');
-  const actual = crypto.scryptSync(password, salt, expected.length);
-  return expected.length === 64 && crypto.timingSafeEqual(actual, expected);
+async function newHash(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return 'scrypt1:' + salt + ':' + (await derive(password, salt, strong)).toString('hex');
 }
-// Auch unbekannte Benutzernamen durchlaufen scrypt, um die Antwortzeit anzugleichen.
+async function verifyPassword(password, stored) {
+  const parts = stored.split(':');
+  const modern = parts.length === 3 && parts[0] === 'scrypt1';
+  const [salt, hash] = modern ? parts.slice(1) : parts;
+  if (!/^[a-f0-9]{32}$/.test(salt || '') || !/^[a-f0-9]{128}$/.test(hash || '')) return false;
+  const actual = await derive(password, salt, modern ? strong : {});
+  return crypto.timingSafeEqual(actual, Buffer.from(hash, 'hex'));
+}
+// Begrenzung paralleler scrypt-Aufträge schützt den Speicher des Servers.
+let activeHashes = 0;
+async function guardedHash(work) {
+  if (activeHashes >= 2) { const error = new Error('Server ausgelastet. Bitte erneut versuchen.'); error.status = 503; throw error; }
+  activeHashes++;
+  try { return await work(); } finally { activeHashes--; }
+}
 const dummyHash = hashPassword(crypto.randomBytes(32).toString('hex'));
 
 function installAuth(app) {
@@ -30,27 +44,38 @@ function installAuth(app) {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.get('X-BudgetPlanner') !== '1') return res.status(403).json({ error: 'Ungültige Anfrage' });
     next();
   });
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res, next) => {
+    try {
     const now = Date.now();
     for (const [key, value] of attempts) if (value.until <= now) attempts.delete(key);
     const { username, password } = req.body || {};
     const key = req.ip + ':' + (validUsername(username) ? username.toLowerCase() : 'invalid');
+    const ipKey = 'ip:' + req.ip;
+    const ipEntry = attempts.get(ipKey) || { count: 0, until: now + 15 * 60 * 1000 };
+    if (ipEntry.count >= 60) return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
+    ipEntry.count++; attempts.set(ipKey, ipEntry);
     if (!attempts.has(key) && attempts.size >= 10000) return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
     const entry = attempts.get(key) || { count: 0, until: now + 15 * 60 * 1000 };
     if (entry.count >= 10) return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
     const user = validUsername(username) ? db.prepare('SELECT * FROM users WHERE username = ?').get(username) : null;
-    const passwordOk = typeof password === 'string' && Buffer.byteLength(password, 'utf8') <= 256 && verifyPassword(password, user ? user.password_hash : dummyHash);
+    entry.count++; attempts.set(key, entry);
+    const passwordOk = typeof password === 'string' && Buffer.byteLength(password, 'utf8') <= 256 && await guardedHash(() => verifyPassword(password, user ? user.password_hash : dummyHash));
     if (!user || !passwordOk) {
-      entry.count++;
-      attempts.set(key, entry);
       return res.status(401).json({ error: 'Benutzername oder Passwort falsch' });
     }
     attempts.delete(key);
+    // Nur nach erfolgreicher Anmeldung den alten Hash aktualisieren.
+    if (!user.password_hash.startsWith('scrypt1:')) {
+      const upgraded = await guardedHash(() => newHash(password));
+      const changed = db.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?').run(upgraded, user.id, user.password_hash);
+      if (!changed.changes) return res.status(401).json({ error: 'Passwort wurde geändert. Bitte erneut anmelden.' });
+    }
     const token = crypto.randomBytes(32).toString('hex');
     db.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
     db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hashToken(token), user.id, now + lifetime);
     res.cookie(cookieName, token, { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: lifetime });
     res.json({ username: user.username });
+    } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); next(error); }
   });
   app.use('/api', (req, res, next) => {
     const cookie = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith(cookieName + '='));
@@ -69,7 +94,8 @@ function installAuth(app) {
     db.prepare('UPDATE users SET display_name = ?, email = ? WHERE id = ?').run(displayName.trim(), email.trim(), req.user.id);
     res.json({ displayName: displayName.trim(), email: email.trim() });
   });
-  app.put('/api/auth/password', (req, res) => {
+  app.put('/api/auth/password', async (req, res, next) => {
+    try {
     const { currentPassword, newPassword } = req.body || {};
     if (typeof currentPassword !== 'string' || Buffer.byteLength(currentPassword, 'utf8') > 256 || !validPassword(newPassword)) return res.status(400).json({ error: 'Neues Passwort muss mindestens 12 Zeichen lang sein.' });
     const now = Date.now();
@@ -78,18 +104,19 @@ function installAuth(app) {
     const entry = old && old.until > now ? old : { count: 0, until: now + 15 * 60 * 1000 };
     if (entry.count >= 10) return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
     const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
-    if (!verifyPassword(currentPassword, user.password_hash)) {
-      entry.count++;
-      attempts.set(key, entry);
+    entry.count++; attempts.set(key, entry);
+    if (!await guardedHash(() => verifyPassword(currentPassword, user.password_hash))) {
       return res.status(400).json({ error: 'Das aktuelle Passwort ist falsch.' });
     }
     attempts.delete(key);
     // Andere Sitzungen beenden; die Sitzung, in der das Passwort geändert wurde, bleibt aktiv.
+    const updatedHash = await guardedHash(() => newHash(newPassword));
     db.transaction(() => {
-      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), req.user.id);
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(updatedHash, req.user.id);
       db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(req.user.id, hashToken(req.sessionToken));
     })();
     res.json({ success: true });
+    } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); next(error); }
   });
   app.post('/api/auth/logout', (req, res) => {
     db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(req.sessionToken));
@@ -115,3 +142,4 @@ function installAuth(app) {
   });
 }
 module.exports = { installAuth, validUsername, validPassword, hashPassword };
+

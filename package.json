@@ -4,11 +4,17 @@
   "description": "Schlanker Budget-Manager für Heimserver",
   "main": "src/server.js",
   "scripts": {
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node tests/accounts-node-sqlite.js && node tests/smoke-node-sqlite.js && node tests/native-sqlite.js && node tests/money.js",
+    "build:css": "tailwindcss -i tailwind-input.css -o src/public/tailwind.css --content \"src/public/*.html\" --minify"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.4.1",
     "cheerio": "^1.0.0-rc.12"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
   }
 }
+

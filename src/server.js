@@ -7,17 +7,25 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const { installAuth } = require('./auth');
+const { parsePrice } = require('./money');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
+// Zusätzliche Begrenzung für Browser: nur lokale Ressourcen und keine Einbettung.
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
+  next();
+});
+app.use(express.json({ limit: '10mb' }));
 // Die Oberfläche nach einem Update bei jedem Aufruf frisch anfordern.
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res, file) => {
   if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
 } }));
 installAuth(app);
 
+// Geldsummen in Cent berechnen; gespeicherte Altwerte bleiben unverändert.
+const sumMoney = values => values.reduce((sum, value) => sum + Math.round((Number(value) || 0) * 100), 0) / 100;
 const validAmount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e9;
 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 const validDate = value => value === '' || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value);
@@ -104,17 +112,17 @@ app.get('/api/projects/:id', (req, res) => {
   }));
 
   // Aggregationen (Min, Erwartet, Max) berechnen
-  const totalMin = items.reduce((acc, i) => acc + (Number(i.cost_min) || 0), 0);
-  const totalExpected = items.reduce((acc, i) => acc + (Number(i.cost_expected) || 0), 0);
-  const totalMax = items.reduce((acc, i) => acc + (Number(i.cost_max) || 0), 0);
+  const totalMin = sumMoney(items.map(i => i.cost_min));
+  const totalExpected = sumMoney(items.map(i => i.cost_expected));
+  const totalMax = sumMoney(items.map(i => i.cost_max));
 
-  const actual = items.reduce((sum, item) => sum + (item.actual_cost || 0), 0);
-  // Bereits bezahlte Posten ersetzen ihren Planwert durch die tatsächlichen Kosten.
-  const forecast = items.reduce((sum, item) => sum + (item.status === 'paid' && item.actual_cost !== null ? item.actual_cost : item.cost_expected), 0);
+  const actual = sumMoney(items.map(item => item.actual_cost));
+  // Bereits bezahlte Kostenpunkte ersetzen ihren Planwert durch den Ist-Betrag.
+  const forecast = sumMoney(items.map(item => item.status === 'paid' && item.actual_cost !== null ? item.actual_cost : item.cost_expected));
   res.json({
     project,
     categories: structuredCategories,
-    summary: { totalMin, totalExpected, totalMax, actual, forecast, remaining: project.budget === null ? null : project.budget - forecast }
+    summary: { totalMin, totalExpected, totalMax, actual, forecast, remaining: project.budget === null ? null : sumMoney([project.budget, -forecast]) }
   });
 });
 
@@ -334,6 +342,8 @@ async function readPublicPage(input) {
   });
 }
 
+// Netzwerkabrufe begrenzen, damit einzelne Konten nicht alle Ressourcen belegen.
+let activeScrapes = 0;
 // URL-Metadaten & Preis extrahieren (Schema.org / JSON-LD + OpenGraph)
 app.post('/api/scrape-url', async (req, res) => {
   const { url } = req.body;
@@ -341,6 +351,8 @@ app.post('/api/scrape-url', async (req, res) => {
     return res.status(400).json({ error: 'Ungültige URL' });
   }
 
+  if (activeScrapes >= 4) return res.status(429).json({ error: 'Zu viele gleichzeitige Abrufe. Bitte erneut versuchen.' });
+  activeScrapes++;
   try {
     const html = await readPublicPage(url);
     const $ = cheerio.load(html);
@@ -370,12 +382,12 @@ app.post('/api/scrape-url', async (req, res) => {
               const offers = obj.offers;
               if (offers) {
                 if (Array.isArray(offers) && offers[0]?.price) {
-                  price = parseFloat(String(offers[0].price).replace(',', '.'));
+                  price = parsePrice(offers[0].price);
                 } else if (offers.price) {
-                  price = parseFloat(String(offers.price).replace(',', '.'));
+                  price = parsePrice(offers.price);
                 }
               } else if (obj.price) {
-                price = parseFloat(String(obj.price).replace(',', '.'));
+                price = parsePrice(obj.price);
               }
             }
             if (obj['@graph']) findProductData(obj['@graph']);
@@ -400,7 +412,7 @@ app.post('/api/scrape-url', async (req, res) => {
                       $('meta[property="og:price:amount"]').attr('content') ||
                       $('meta[name="twitter:data1"]').attr('content');
       if (ogPrice) {
-        const parsed = parseFloat(String(ogPrice).replace(',', '.'));
+        const parsed = parsePrice(ogPrice);
         if (!isNaN(parsed)) price = parsed;
       }
     }
@@ -418,9 +430,10 @@ app.post('/api/scrape-url', async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: 'Konnte URL nicht abrufen: ' + err.message });
-  }
+  } finally { activeScrapes--; }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Budgetplanner läuft auf Port ${PORT}`);
 });
+

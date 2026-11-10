@@ -6,4 +6,9 @@
 - **categories**: `id` (INTEGER PK), `project_id` (FK projects.id), `name` (TEXT), `sort_order` (INT)
 - **budget_items**: `id` (INTEGER PK), `category_id` (FK categories.id), `name` (TEXT), `url` (TEXT), `due_date` (TEXT ISO), `cost_min` (REAL), `cost_expected` (REAL), `cost_max` (REAL), `status` (planned/ordered/paid), `actual_cost` (REAL, optional), `paid_date` (TEXT ISO, optional)
 
-Fremdschlüssel mit `ON DELETE CASCADE` sind in SQLite aktiviert. Neue Spalten werden beim Start ergänzt; alte Projekte erhalten kein Budget und Posten den Status `planned`. Projektimport erfolgt atomar als neues Projekt. Geldwerte sind weiterhin REAL.
+Fremdschlüssel sind aktiviert; Projekt → Kategorien → Kostenpunkte und Benutzer → Sitzungen verwenden `ON DELETE CASCADE`. `projects.owner_id` ist nullable und hat keinen Lösch-Cascade. Neue Spalten werden beim Start anhand von `table_info` ergänzt; ein versioniertes Migrationssystem existiert nicht. Alte Projekte bleiben ohne Eigentümer, bis das erste Konto sie explizit übernimmt.
+
+Der JSON-Export enthält ein einzelnes Projekt; der validierte Import der Formate 1.0 und 2.0 legt atomar ein neues Projekt des angemeldeten Kontos an. Die Weboberfläche begrenzt Importdateien auf 100.000 Bytes, Express verwendet zusätzlich das Standard-JSON-Limit. Ein vollständiges Export/Import-Roundtrip für große Projekte ist deshalb nicht garantiert. Ein Projekt-Export enthält weder Konten noch Sitzungen und ist kein vollständiges Datenbank-Backup.
+
+Geldwerte sind REAL und Summen JavaScript-Fließkommazahlen; Rundungsabweichungen sind möglich. Eine konkrete Migration auf Cent als Integer muss Altwerte und Backups berücksichtigen.
+
