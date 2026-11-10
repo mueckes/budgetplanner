@@ -67,6 +67,7 @@ nodes:
   ui:modal_item:
     file: src/public/index.html
     functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
+    bounds: "Beim Speichern: leeres Min = Plan × 0,90; leeres Max = Plan × 1,15. Produktabruf: Min × 0,95, Max × 1,10. Vorschläge: Min × 0,80, Max × 1,30."
   ui:action_dialog:
     file: src/public/index.html
     functions: [showAction, editProject, editCategory, editPayment, deleteProject, deleteCategory]
