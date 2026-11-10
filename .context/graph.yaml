@@ -2,7 +2,7 @@
 meta:
   project: budgetplanner
   architecture: monolith-docker-sqlite
-  version: 1.5.1
+  version: 1.6.0
   verified_at: 2026-11-10
   verified_commit: 48e92b1210d4bbea408a9d5a6fb3eedcc842f4ce
 
@@ -11,8 +11,8 @@ nodes:
   concept:cost_estimation:
     type: concept
     spec: .context/nodes/cost_estimation.md
-    defines: [cost_min, cost_expected, cost_max, bandwidth]
-    note: sums user-supplied values; no PERT weighting
+    defines: [cost_min, cost_expected, cost_max, kind, bounds_enabled]
+    note: optional bounds; expense minus income, reversing income bounds; no PERT weighting
   concept:templates:
     type: concept
     instances: [moving, renovation, empty]
@@ -23,10 +23,11 @@ nodes:
   concept:project_budget:
     type: concept
     optional: true
-    forecast: paid items use actual_cost, other items use cost_expected
+    forecast: expenses minus income; paid items use actual_cost, other items cost_expected
   concept:payment:
     type: concept
     statuses: [planned, ordered, paid]
+    kind: [expense, income]
     note: one actual amount and optional paid date per item
   concept:accounts:
     type: concept
@@ -95,7 +96,7 @@ nodes:
   ui:modal_item:
     file: src/public/index.html
     functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
-    bounds: "Unberührtes Min = Plan × 0,90; unberührtes Max = Plan × 1,15; bewusst gelöschte Grenzen = Planwert. Produktabruf: Min × 0,95, Max × 1,10. Vorschläge: Min × 0,80, Max × 1,30."
+    bounds: "Min/Max je Eintrag optional; deaktiviert zählt der Planwert. Alte Einträge behalten aktive Grenzen."
   ui:action_dialog:
     file: src/public/index.html
     functions: [showAction, editProject, editCategory, editPayment, deleteProject, deleteCategory]
