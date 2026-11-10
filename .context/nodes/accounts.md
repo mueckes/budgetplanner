@@ -4,6 +4,7 @@
 - Vor dem Update ein SQLite-Backup erstellen. Bestehende Projekte sind bis zur ausdrücklichen Zuordnung nicht sichtbar.
 - Erstes Konto mit Altprojekten: `docker compose exec budgetplanner node src/manage-users.js add BENUTZER --claim-existing`. Dieser Schritt ordnet alle bisherigen nicht zugeordneten Projekte diesem ersten Konto zu. Ohne Altprojekte kann `--claim-existing` weggelassen werden.
 - Weitere Konten: `docker compose exec budgetplanner node src/manage-users.js add BENUTZER`. Ein Konto sieht ausschließlich seine eigenen Projekte; ein Import erstellt ein eigenes Projekt.
+- Bei der interaktiven Passwortabfrage erscheint die Beschriftung über einer leeren Eingabezeile; während der Eingabe werden keine Zeichen angezeigt.
 - Passwort zurücksetzen: `docker compose exec budgetplanner node src/manage-users.js password BENUTZER`; alle bisherigen Sitzungen dieses Kontos werden beendet.
 - Unter „Konto“ kann jede Person den eigenen Anzeigenamen und eine optionale E-Mail-Adresse ändern. Die E-Mail-Adresse ist nur ein Kontaktdatum; es gibt keinen Mailversand oder Passwort-Reset per E-Mail.
 - Das eigene Passwort kann nach Bestätigung des aktuellen Passworts geändert werden; andere Sitzungen des Kontos werden dabei beendet.
