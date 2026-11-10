@@ -97,9 +97,14 @@ nodes:
     file: src/public/index.html
     functions: [suggestedCategory, addSuggestedItem]
     note: category is selectable; keyword match preselects a suitable existing category
+  ui:category_accordion:
+    file: src/public/index.html
+    functions: [renderCategories, categoryIsOpen, rememberCategory]
+    note: categories collapse with plan totals; open state is stored locally per account and project
   ui:views:
     file: src/public/index.html
-    modes: [categories, timeline]
+    modes: [overview, categories, timeline]
+    note: overview includes up to three open due items and links to suggestions; project and account actions are in menus
 
   # --- INFRASTRUCTURE ---
   infra:reverse_proxy:

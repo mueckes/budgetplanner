@@ -17,6 +17,18 @@
     }
     .summary-card { background: #fff; border: 1px solid #dce8e0; border-radius: 1rem; padding: 1.25rem; box-shadow: 0 1px 3px #123b2310; }
     .summary-card--plan { border-color: #61a776; box-shadow: 0 1px 4px #14532d15; }
+    .popup-menu { position: relative; }
+    .popup-menu > summary, .category-toggle { cursor: pointer; list-style: none; }
+    .popup-menu > summary::-webkit-details-marker, .category-toggle::-webkit-details-marker { display: none; }
+    .menu-panel { position: absolute; right: 0; z-index: 30; min-width: 13rem; margin-top: .4rem; padding: .35rem; background: #fff; border: 1px solid #dce8e0; border-radius: .75rem; box-shadow: 0 8px 25px #0f172a20; }
+    .menu-panel button { display: block; width: 100%; border-radius: .4rem; padding: .65rem .75rem; text-align: left; font-size: .875rem; }
+    .menu-panel button:hover { background: #ecfdf5; }
+    .category-toggle { display: flex; align-items: center; gap: .75rem; padding: 1rem 1.25rem; }
+    .category-toggle .chevron { transition: transform .15s; }
+    details[open] > .category-toggle .chevron { transform: rotate(180deg); }
+    .view-tabs { display: flex; flex-wrap: wrap; gap: .5rem; border-bottom: 1px solid #cbd5e1; padding-bottom: .5rem; }
+    .view-tab { min-height: 44px; padding: .5rem .9rem; border-radius: .5rem; font-size: .875rem; color: #475569; }
+    .view-tab[aria-current="page"] { background: white; border: 1px solid #a7cbb2; color: #047857; font-weight: 600; }
     [contenteditable="true"]:hover { outline: 1px dashed #94a3b8; border-radius: 4px; background-color: #f8fafc; }
     [contenteditable="true"]:focus { outline: 2px solid #3b82f6; border-radius: 4px; background-color: #ffffff; }
     /* Auf kleinen Touchscreens werden breite Tabellen zu lesbaren Karten. */
@@ -28,7 +40,8 @@
       .app-nav { flex-wrap: wrap; }
       .app-nav #projectSelect { flex: 1 1 11rem; min-width: 0; max-width: 100%; }
       .app-nav #accountName { flex: 1 1 35%; overflow-wrap: anywhere; }
-      .app-nav button, .app-nav label, .category-actions button, .item-actions button { min-height: 44px; }
+      .app-nav button, .app-nav label, .app-nav summary, .category-actions button, .item-actions button { min-height: 44px; }
+      .app-nav summary { display: flex; align-items: center; }
       .item-actions button { min-width: 44px; }
       .category-heading { flex-wrap: wrap; gap: .75rem; }
       .category-actions { flex-wrap: wrap; }
@@ -45,6 +58,13 @@
       #actionModal, #newProjectModal, #newItemModal { overflow-y: auto; align-items: safe center; }
       #actionModal > div, #newProjectModal > div, #newItemModal > div { max-height: calc(100dvh - 2rem); overflow-y: auto; }
       input, select, textarea, [contenteditable="true"] { font-size: 16px !important; }
+      .view-tab { flex: 1 1 auto; text-align: center; padding-left: .5rem; padding-right: .5rem; }
+      .category-toggle { flex-wrap: wrap; }
+      main .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+      .summary-card { min-width: 0; padding: .7rem; }
+      .summary-card > span { font-size: .62rem; letter-spacing: 0; }
+      .summary-card > div { font-size: clamp(1rem, 4.5vw, 1.35rem); overflow-wrap: anywhere; }
+      .summary-card > p { display: none; }
     }
   </style>
 </head>
@@ -65,31 +85,48 @@
       
       <div class="app-nav flex items-center gap-2">
         <span id="accountName" class="text-xs text-slate-500"></span>
-        <button onclick="editAccount()" class="border border-slate-300 rounded-lg px-2 py-1 text-sm">Konto</button>
-        <button onclick="logout()" class="border border-slate-300 rounded-lg px-2 py-1 text-sm">Abmelden</button>
         <select id="projectSelect" aria-label="Projekt auswählen" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500" onchange="loadProject(this.value)"></select>
         <button onclick="createProjectPrompt()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg shadow-sm transition">+ Projekt</button>
-        <button onclick="exportProject()" title="Projekt als JSON exportieren" class="border border-slate-300 hover:bg-slate-50 text-slate-600 text-sm p-1.5 rounded-lg">💾</button>
-        <label class="border rounded-lg px-2 py-1 text-sm cursor-pointer">Import <input type="file" accept=".json,application/json" class="hidden" onchange="importProject(this)"></label>
+        <details class="popup-menu">
+          <summary class="border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white">Konto ▾</summary>
+          <div class="menu-panel">
+            <button type="button" onclick="this.closest('details').open=false; editAccount()">Kontoeinstellungen</button>
+            <button type="button" onclick="document.getElementById('importFile').click()">Projekt importieren</button>
+            <button type="button" onclick="this.closest('details').open=false; logout()">Abmelden</button>
+          </div>
+        </details>
+        <input id="importFile" type="file" accept=".json,application/json" class="hidden" onchange="importProject(this)">
       </div>
     </div>
   </header>
 
   <!-- Hauptansicht -->
   <main class="max-w-6xl mx-auto px-4 py-8 flex-1 w-full space-y-6">
-    <div>
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div>
       <p class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Dein Vorhaben im Überblick</p>
       <h2 class="text-2xl font-bold text-slate-900 mt-1">Projekt-Dashboard</h2>
       <p id="projectSubtitle" class="text-sm text-slate-600 mt-1">Budget und Kosten im Blick</p>
-    </div>
-    <div class="flex flex-wrap gap-2 text-sm">
-      <button onclick="editProject()" class="border rounded-lg bg-white px-3 py-2">Projekt bearbeiten</button>
-      <button onclick="archiveProject()" class="border rounded-lg bg-white px-3 py-2">Archivieren / aktivieren</button>
-      <button onclick="deleteProject()" class="border rounded-lg bg-white px-3 py-2 text-rose-700">Projekt löschen</button>
+      </div>
+      <details class="popup-menu">
+        <summary class="border rounded-lg bg-white px-3 py-2 text-sm">Projektmenü ▾</summary>
+        <div class="menu-panel">
+          <button type="button" onclick="this.closest('details').open=false; editProject()">Projekt bearbeiten</button>
+          <button type="button" onclick="this.closest('details').open=false; archiveProject()">Archivieren / aktivieren</button>
+          <button type="button" onclick="this.closest('details').open=false; exportProject()">Projekt exportieren</button>
+          <button type="button" class="text-rose-700" onclick="this.closest('details').open=false; deleteProject()">Projekt löschen</button>
+        </div>
+      </details>
     </div>
 
+    <nav class="view-tabs" aria-label="Projektansichten">
+      <button id="tabOverview" class="view-tab" aria-current="page" onclick="switchView('overview')">Übersicht</button>
+      <button id="tabCategories" class="view-tab" onclick="switchView('categories')">Kostenpunkte</button>
+      <button id="tabTimeline" class="view-tab" onclick="switchView('timeline')">Fälligkeiten</button>
+    </nav>
+    <section id="viewOverview" class="space-y-6">
     <!-- Kennzahlen bleiben eigene, deckend weiße Karten. -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="summary-grid grid grid-cols-1 md:grid-cols-3 gap-4">
       <div class="summary-card">
         <span class="text-xs font-semibold uppercase tracking-wider text-emerald-700">Best Case (Min)</span>
         <div id="statMin" class="text-3xl font-extrabold text-slate-900 mt-1">0,00 €</div>
@@ -115,8 +152,15 @@
       </div>
       <div id="budgetSummary" class="mt-4 text-sm text-slate-700"></div>
     </div>
+    <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm">
+      <h3 class="text-sm font-bold text-slate-800">Nächste und überfällige Fälligkeiten</h3>
+      <ul id="upcomingList" class="mt-3 space-y-2 text-sm text-slate-600"></ul>
+      <button id="overviewSuggestions" class="hidden mt-3 text-sm font-semibold text-emerald-700 hover:underline" onclick="switchView('categories'); document.getElementById('suggestionsList').classList.remove('hidden')"></button>
+    </div>
+    </section>
 
     <!-- Smart Assistant: Vollständigkeitsprüfung -->
+    <div id="viewCategories" class="space-y-6 hidden">
     <div id="completenessCard" class="bg-amber-50 border border-amber-200 rounded-2xl p-5 hidden">
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-2">
@@ -131,14 +175,7 @@
       <div id="suggestionsList" class="mt-4 pt-3 border-t border-amber-200/60 space-y-2 hidden"></div>
     </div>
 
-    <!-- Tabs: Kategorien vs. Monatsübersicht -->
-    <div class="flex gap-2 border-b border-slate-200 pb-2">
-      <button id="tabCategories" onclick="switchView('categories')" class="px-4 py-2 font-semibold text-sm rounded-lg bg-white border border-slate-300 text-emerald-600 shadow-sm">Kategorien & Kostenpunkte</button>
-      <button id="tabTimeline" onclick="switchView('timeline')" class="px-4 py-2 font-medium text-sm rounded-lg text-slate-600 hover:bg-slate-100">Fälligkeiten</button>
-    </div>
-
-    <!-- Ansicht 1: Kategorien & Posten -->
-    <div id="viewCategories" class="space-y-6">
+    <!-- Kostenpunkte nach Kategorien -->
       <div id="categoriesContainer" class="space-y-6"></div>
       <button onclick="addCategoryPrompt()" class="border border-dashed border-slate-300 hover:border-emerald-500 hover:text-emerald-600 text-slate-600 bg-white text-sm font-medium px-5 py-3 rounded-xl transition w-full text-center">
         + Neue Kategorie anlegen
@@ -291,6 +328,20 @@
     let currentProjectId = null;
     let currentProject = null;
 
+    // Menüs bleiben per Tastatur bedienbar und schließen bei Klick außerhalb oder Escape.
+    document.addEventListener('click', event => {
+      document.querySelectorAll('details.popup-menu[open]').forEach(menu => {
+        if (!menu.contains(event.target)) menu.open = false;
+      });
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      document.querySelectorAll('details.popup-menu[open]').forEach(menu => {
+        menu.open = false;
+        menu.querySelector('summary').focus();
+      });
+    });
+
     async function init(selectId = null) {
       const res = await fetch('/api/projects');
       const projects = await res.json();
@@ -306,7 +357,9 @@
         document.getElementById('completenessCard').classList.add('hidden');
         for (const id of ['statMin', 'statExpected', 'statMax', 'barMin', 'barMax', 'barDiff']) document.getElementById(id).textContent = fmt(0);
         document.getElementById('timelineTableBody').innerHTML = '';
-        switchView('categories');
+        document.getElementById('upcomingList').textContent = 'Keine offenen Fälligkeiten.';
+        document.getElementById('overviewSuggestions').classList.add('hidden');
+        switchView('overview');
         return;
       }
 
@@ -326,6 +379,7 @@
       currentProjectId = id;
       const res = await fetch(`/api/projects/${id}`);
       const data = await res.json();
+      if (String(id) !== String(currentProjectId)) return;
       currentProject = data.project;
       document.getElementById('projectSubtitle').textContent = data.project.name;
 
@@ -337,18 +391,51 @@
       document.getElementById('barDiff').textContent = fmt(data.summary.totalMax - data.summary.totalMin);
       document.getElementById('budgetSummary').textContent = `Bezahlt / erfasst: ${fmt(data.summary.actual)} · Prognose: ${fmt(data.summary.forecast)}` + (data.project.budget === null ? ' · Kein Budget vorgegeben' : ` · Budget: ${fmt(data.project.budget)} · Verbleibend: ${fmt(data.summary.remaining)}`);
 
+      renderUpcoming(data.categories);
       renderCategories(data.categories);
       checkCompleteness(id);
       if (!document.getElementById('viewTimeline').classList.contains('hidden')) loadTimeline(id);
     }
 
+    function renderUpcoming(categories) {
+      const list = document.getElementById('upcomingList');
+      list.replaceChildren();
+      const upcoming = categories.flatMap(cat => cat.items).filter(item => item.due_date && item.status !== 'paid')
+        .sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 3);
+      if (!upcoming.length) {
+        const row = document.createElement('li');
+        row.textContent = 'Keine offenen Fälligkeiten.';
+        list.appendChild(row);
+      }
+      for (const item of upcoming) {
+        const row = document.createElement('li');
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(item.due_date) ? item.due_date.split('-').reverse().join('.') : item.due_date;
+        row.textContent = `${date} · ${item.name} · ${fmt(item.cost_expected)}`;
+        list.appendChild(row);
+      }
+    }
+
+    // Der aufgeklappte Zustand ist je Konto und Projekt lokal im Browser gespeichert.
+    const categoryState = new Map();
+    function categoryKey(id) { return `budgetplanner:category:${currentAccount?.username}:${currentProjectId}:${id}`; }
+    function categoryIsOpen(key) {
+      if (categoryState.has(key)) return categoryState.get(key);
+      try { return localStorage.getItem(key) === 'open'; } catch { return false; }
+    }
+    function rememberCategory(key, open) {
+      categoryState.set(key, open);
+      try { localStorage.setItem(key, open ? 'open' : 'closed'); } catch { /* Ohne Speicher bleibt die Einstellung für diese Sitzung erhalten. */ }
+    }
     function renderCategories(categories) {
       const container = document.getElementById('categoriesContainer');
       container.innerHTML = '';
 
       categories.forEach(cat => {
-        const catCard = document.createElement('div');
+        const catCard = document.createElement('details');
         catCard.className = 'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden';
+        const key = categoryKey(cat.id);
+        catCard.open = categoryIsOpen(key);
+        catCard.addEventListener('toggle', () => rememberCategory(key, catCard.open));
         
         let rows = cat.items.map(i => `
           <tr class="border-t border-slate-100 hover:bg-slate-50 transition-colors text-sm group">
@@ -382,11 +469,13 @@
         `).join('');
 
         catCard.innerHTML = `
-          <div class="category-heading bg-slate-50 px-5 py-3.5 flex justify-between items-center border-b border-slate-200">
-            <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
-              <span>${escapeHtml(cat.name)}</span>
-              <span class="text-xs font-normal text-slate-400">(${cat.items.length} ${cat.items.length === 1 ? 'Kostenpunkt' : 'Kostenpunkte'})</span>
-            </h3>
+          <summary class="category-toggle bg-slate-50">
+            <span class="font-bold text-slate-800 text-base">${escapeHtml(cat.name)}</span>
+            <span class="text-xs text-slate-500">(${cat.items.length} ${cat.items.length === 1 ? 'Kostenpunkt' : 'Kostenpunkte'})</span>
+            <span class="ml-auto text-sm font-semibold text-emerald-700">Plan: ${fmt(cat.items.reduce((sum, item) => sum + (Number(item.cost_expected) || 0), 0))}</span>
+            <span class="chevron text-slate-500" aria-hidden="true">▾</span>
+          </summary>
+          <div class="category-heading bg-white px-5 py-3 flex justify-end items-center border-t border-slate-200">
             <div class="category-actions flex gap-2"><button onclick="editCategory(${cat.id}, this.dataset.name, ${cat.sort_order})" data-name="${escapeHtml(cat.name)}" class="text-xs border rounded px-2">Bearbeiten</button><button onclick="deleteCategory(${cat.id})" class="text-xs border rounded px-2 text-rose-700">Löschen</button><button onclick="addItemPrompt(${cat.id})" class="text-xs font-semibold bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-3 py-1.5 rounded-lg shadow-sm">+ Hinzufügen</button></div>
           </div>
           <div class="overflow-x-auto">
@@ -409,9 +498,13 @@
     async function checkCompleteness(id) {
       const res = await fetch(`/api/projects/${id}/completeness`);
       const data = await res.json();
+      if (String(id) !== String(currentProjectId)) return;
       const card = document.getElementById('completenessCard');
       const sub = document.getElementById('completenessSubtitle');
       const list = document.getElementById('suggestionsList');
+      const overview = document.getElementById('overviewSuggestions');
+      overview.classList.toggle('hidden', !data.missingCount);
+      overview.textContent = `${data.missingCount} mögliche ${data.missingCount === 1 ? 'Kostenfalle' : 'Kostenfallen'} ansehen →`;
 
       if (data.missingCount > 0) {
         card.classList.remove('hidden');
@@ -433,6 +526,7 @@
     async function loadTimeline(id) {
       const res = await fetch(`/api/projects/${id}/timeline`);
       const timeline = await res.json();
+      if (String(id) !== String(currentProjectId)) return;
       const tbody = document.getElementById('timelineTableBody');
       tbody.innerHTML = '';
 
@@ -456,18 +550,12 @@
     }
 
     function switchView(view) {
-      if (view === 'categories') {
-        document.getElementById('viewCategories').classList.remove('hidden');
-        document.getElementById('viewTimeline').classList.add('hidden');
-        document.getElementById('tabCategories').className = 'px-4 py-2 font-semibold text-sm rounded-lg bg-white border border-slate-300 text-emerald-600 shadow-sm';
-        document.getElementById('tabTimeline').className = 'px-4 py-2 font-medium text-sm rounded-lg text-slate-600 hover:bg-slate-100';
-      } else {
-        document.getElementById('viewCategories').classList.add('hidden');
-        document.getElementById('viewTimeline').classList.remove('hidden');
-        document.getElementById('tabTimeline').className = 'px-4 py-2 font-semibold text-sm rounded-lg bg-white border border-slate-300 text-emerald-600 shadow-sm';
-        document.getElementById('tabCategories').className = 'px-4 py-2 font-medium text-sm rounded-lg text-slate-600 hover:bg-slate-100';
-        loadTimeline(currentProjectId);
+      for (const [name, suffix] of [['overview', 'Overview'], ['categories', 'Categories'], ['timeline', 'Timeline']]) {
+        document.getElementById('view' + suffix).classList.toggle('hidden', name !== view);
+        const tab = document.getElementById('tab' + suffix);
+        if (name === view) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current');
       }
+      if (view === 'timeline' && currentProjectId) loadTimeline(currentProjectId);
     }
 
     function toggleSuggestions() {
