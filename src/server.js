@@ -358,4 +358,3 @@ app.post('/api/scrape-url', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Budgetplanner läuft auf Port ${PORT}`);
 });
-
