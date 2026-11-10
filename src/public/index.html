@@ -85,7 +85,7 @@
 
     <!-- Tabs: Kategorien vs. Monatsübersicht -->
     <div class="flex gap-2 border-b border-slate-200 pb-2">
-      <button id="tabCategories" onclick="switchView('categories')" class="px-4 py-2 font-semibold text-sm rounded-lg bg-white border border-slate-300 text-indigo-600 shadow-sm">Kategorien & Posten</button>
+      <button id="tabCategories" onclick="switchView('categories')" class="px-4 py-2 font-semibold text-sm rounded-lg bg-white border border-slate-300 text-indigo-600 shadow-sm">Kategorien & Kostenpunkte</button>
       <button id="tabTimeline" onclick="switchView('timeline')" class="px-4 py-2 font-medium text-sm rounded-lg text-slate-600 hover:bg-slate-100">Fälligkeiten</button>
     </div>
 
@@ -108,7 +108,7 @@
           <thead>
             <tr class="text-xs font-semibold text-slate-400 uppercase border-b bg-white">
               <th class="p-3.5">Monat / Zeitraum</th>
-              <th class="p-3.5 text-center">Posten</th>
+              <th class="p-3.5 text-center">Kostenpunkte</th>
               <th class="p-3.5 text-right">Min</th>
               <th class="p-3.5 text-right font-bold text-slate-700">Erwartet (Plan)</th>
               <th class="p-3.5 text-right">Max</th>
@@ -170,7 +170,7 @@
   <div id="newItemModal" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200">
       <div class="flex justify-between items-center mb-4">
-        <h3 class="text-lg font-bold text-slate-800">Posten hinzufügen</h3>
+        <h3 class="text-lg font-bold text-slate-800">Kostenpunkt hinzufügen</h3>
         <button onclick="closeItemModal()" class="text-slate-400 hover:text-slate-600 font-bold text-lg">✕</button>
       </div>
 
@@ -318,19 +318,19 @@
           <div class="bg-slate-50/80 px-5 py-3.5 flex justify-between items-center border-b border-slate-200">
             <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
               <span>${escapeHtml(cat.name)}</span>
-              <span class="text-xs font-normal text-slate-400">(${cat.items.length} Posten)</span>
+              <span class="text-xs font-normal text-slate-400">(${cat.items.length} ${cat.items.length === 1 ? 'Kostenpunkt' : 'Kostenpunkte'})</span>
             </h3>
-            <div class="flex gap-2"><button onclick="editCategory(${cat.id}, this.dataset.name, ${cat.sort_order})" data-name="${escapeHtml(cat.name)}" class="text-xs border rounded px-2">Bearbeiten</button><button onclick="deleteCategory(${cat.id})" class="text-xs border rounded px-2 text-rose-700">Löschen</button><button onclick="addItemPrompt(${cat.id})" class="text-xs font-semibold bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-3 py-1.5 rounded-lg shadow-sm">+ Posten</button></div>
+            <div class="flex gap-2"><button onclick="editCategory(${cat.id}, this.dataset.name, ${cat.sort_order})" data-name="${escapeHtml(cat.name)}" class="text-xs border rounded px-2">Bearbeiten</button><button onclick="deleteCategory(${cat.id})" class="text-xs border rounded px-2 text-rose-700">Löschen</button><button onclick="addItemPrompt(${cat.id})" class="text-xs font-semibold bg-white border border-slate-300 hover:border-slate-400 text-slate-700 px-3 py-1.5 rounded-lg shadow-sm">+ Kostenpunkt</button></div>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse">
               <thead>
                 <tr class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-white">
-                  <th class="p-3.5">Posten</th><th class="p-3.5 w-36">Fälligkeit</th><th class="p-3.5 text-right w-28">Min</th><th class="p-3.5 text-right w-28 bg-slate-50/50">Plan</th><th class="p-3.5 text-right w-28">Max</th><th class="p-3.5 text-center w-16">Aktionen</th>
+                  <th class="p-3.5">Kostenpunkt</th><th class="p-3.5 w-36">Fälligkeit</th><th class="p-3.5 text-right w-28">Min</th><th class="p-3.5 text-right w-28 bg-slate-50/50">Plan</th><th class="p-3.5 text-right w-28">Max</th><th class="p-3.5 text-center w-16">Aktionen</th>
                 </tr>
               </thead>
               <tbody>
-                ${rows || '<tr><td colspan="6" class="p-6 text-center text-sm text-slate-400 italic">Keine Posten vorhanden.</td></tr>'}
+                ${rows || '<tr><td colspan="6" class="p-6 text-center text-sm text-slate-400 italic">Keine Kostenpunkte vorhanden.</td></tr>'}
               </tbody>
             </table>
           </div>
@@ -370,7 +370,7 @@
       tbody.innerHTML = '';
 
       if (timeline.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-sm text-slate-400">Keine datierten Posten vorhanden.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-sm text-slate-400">Keine datierten Kostenpunkte vorhanden.</td></tr>';
         return;
       }
 
@@ -408,16 +408,36 @@
       list.classList.toggle('hidden');
     }
 
+    // Stichwörter bevorzugen thematisch passende Kategorien; ohne Treffer ist eine Auswahl nötig.
+    function suggestedCategory(name, categories) {
+      const rules = [
+        [/halteverbot/i, [/halteverbot/i, /transport/i, /umzug/i]],
+        [/kaution/i, [/kaution/i, /neue.*wohnung/i, /wohnung/i]],
+        [/reinigung/i, [/reinigung/i, /altwohnung/i, /wohnung/i]],
+        [/puffer|unvorhergesehen/i, [/puffer/i, /risiko|reserve/i, /sonstiges/i]],
+        [/nachsende|ummeldung/i, [/nachsende|ummeldung/i, /behörden|behoerden|verwaltung/i]],
+        [/verpflegung/i, [/verpflegung|helfer/i, /transport|umzug/i]]
+      ];
+      const rule = rules.find(([suggestion]) => suggestion.test(name));
+      if (!rule) return null;
+      for (const pattern of rule[1]) {
+        const match = categories.find(category => pattern.test(category.name));
+        if (match) return match;
+      }
+      return null;
+    }
     async function addSuggestedItem(name) {
-      const res = await fetch(`/api/projects/${currentProjectId}`);
-      const data = await res.json();
-      const firstCat = data.categories[0];
-      if (!firstCat) return showError('Bitte erstelle zuerst eine Kategorie.');
+      let data;
+      try { data = await api(`/api/projects/${currentProjectId}`, 'GET'); }
+      catch (error) { return showError(error.message); }
+      if (!data.categories.length) return showError('Bitte erstelle zuerst eine Kategorie.');
+      const suggested = suggestedCategory(name, data.categories);
       showAction({ title: 'Vorschlag hinzufügen', description: name, fields: [
+        { name: 'category', label: 'Kategorie', required: true, value: suggested ? String(suggested.id) : '', options: [['', 'Bitte Kategorie auswählen'], ...data.categories.map(category => [String(category.id), category.name])] },
         { name: 'amount', label: 'Erwartete Kosten in €', type: 'number', value: '50', required: true }
       ], onSubmit: async values => {
         const exp = Number(values.amount);
-        await api('/api/items', 'POST', { categoryId: firstCat.id, name, costExpected: exp, costMin: exp * 0.8, costMax: exp * 1.3 });
+        await api('/api/items', 'POST', { categoryId: Number(values.category), name, costExpected: exp, costMin: exp * 0.8, costMax: exp * 1.3 });
         await loadProject(currentProjectId);
       } });
     }
@@ -576,7 +596,7 @@
       return updateItem(id, field, parseNum(value));
     }
     function deleteItem(id) {
-      showAction({ title: 'Posten löschen', description: 'Der Posten wird unwiderruflich gelöscht.', submit: 'Posten löschen', danger: true, onSubmit: async () => {
+      showAction({ title: 'Kostenpunkt löschen', description: 'Der Kostenpunkt wird unwiderruflich gelöscht.', submit: 'Kostenpunkt löschen', danger: true, onSubmit: async () => {
         await api(`/api/items/${id}`, 'DELETE'); await loadProject(currentProjectId);
       } });
     }
@@ -669,7 +689,7 @@
     function deleteProject() {
       if (!currentProject) return;
       const id = currentProjectId;
-      showAction({ title: 'Projekt löschen', description: 'Das Projekt und alle enthaltenen Kategorien und Posten werden unwiderruflich gelöscht.', submit: 'Projekt löschen', danger: true, onSubmit: async () => {
+      showAction({ title: 'Projekt löschen', description: 'Das Projekt und alle enthaltenen Kategorien und Kostenpunkte werden unwiderruflich gelöscht.', submit: 'Projekt löschen', danger: true, onSubmit: async () => {
         await api(`/api/projects/${id}`, 'DELETE'); await init();
       } });
     }
@@ -682,7 +702,7 @@
       } });
     }
     function deleteCategory(id) {
-      showAction({ title: 'Kategorie löschen', description: 'Die Kategorie und alle enthaltenen Posten werden unwiderruflich gelöscht.', submit: 'Kategorie löschen', danger: true, onSubmit: async () => {
+      showAction({ title: 'Kategorie löschen', description: 'Die Kategorie und alle enthaltenen Kostenpunkte werden unwiderruflich gelöscht.', submit: 'Kategorie löschen', danger: true, onSubmit: async () => {
         await api(`/api/categories/${id}`, 'DELETE'); await loadProject(currentProjectId);
       } });
     }
@@ -692,7 +712,7 @@
         { name: 'amount', label: 'Tatsächlicher Betrag in € (optional)', type: 'number', value: button.dataset.actual },
         { name: 'date', label: 'Zahlungsdatum (optional)', type: 'date', value: button.dataset.date }
       ], onSubmit: async values => {
-        if (values.status === 'paid' && values.amount === '') throw new Error('Bitte den tatsächlichen Betrag für den bezahlten Posten eingeben.');
+        if (values.status === 'paid' && values.amount === '') throw new Error('Bitte den tatsächlichen Betrag für den bezahlten Kostenpunkt eingeben.');
         await api(`/api/items/${id}`, 'PUT', { status: values.status, actualCost: values.amount === '' ? null : Number(values.amount), paidDate: values.date });
         await loadProject(currentProjectId);
       } });
