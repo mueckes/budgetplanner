@@ -11,7 +11,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// Die Oberfläche nach einem Update bei jedem Aufruf frisch anfordern.
+app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res, file) => {
+  if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
+} }));
 
 const validAmount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e9;
 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
@@ -63,7 +66,7 @@ app.post('/api/import', (req, res) => {
   for (const cat of data.categories) {
     if (!cat || !validName(cat.name) || !Array.isArray(cat.items) || cat.items.length > 5000 || !Number.isSafeInteger(cat.sort_order ?? 0)) return res.status(400).json({ error: 'Ungültige Kategorie' });
     for (const item of cat.items) {
-      if (!item || !validName(item.name) || typeof (item.url ?? '') !== 'string' || !validDate(item.due_date || '') || !validDate(item.paid_date || '') || ![item.cost_min, item.cost_expected, item.cost_max].every(validAmount) || !statuses.includes(item.status || 'planned') || (item.actual_cost != null && !validAmount(item.actual_cost)) || (item.status === 'paid' && item.actual_cost == null)) return res.status(400).json({ error: 'Ungültiger Posten' });
+      if (!item || !validName(item.name) || typeof (item.url ?? '') !== 'string' || !validDate(item.due_date || '') || !validDate(item.paid_date || '') || ![item.cost_min, item.cost_expected, item.cost_max].every(validAmount) || !statuses.includes(item.status || 'planned') || (item.actual_cost != null && !validAmount(item.actual_cost)) || (item.status === 'paid' && item.actual_cost == null)) return res.status(400).json({ error: 'Ungültiger Kostenpunkt' });
     }
   }
   const id = db.transaction(() => {
@@ -138,7 +141,7 @@ app.delete('/api/categories/:id', (req, res) => {
 // 4. Posten anlegen
 app.post('/api/items', (req, res) => {
   const { categoryId, name, url, dueDate, costMin, costExpected, costMax } = req.body;
-  if (!validName(name) || (url != null && typeof url !== 'string') || !validDate(dueDate || '') || ![costMin, costExpected, costMax].every(validAmount)) return res.status(400).json({ error: 'Ungültige Postendaten' });
+  if (!validName(name) || (url != null && typeof url !== 'string') || !validDate(dueDate || '') || ![costMin, costExpected, costMax].every(validAmount)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten' });
   if (!db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId)) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
   const insert = db.prepare(`
     INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max)
@@ -159,9 +162,9 @@ app.post('/api/items', (req, res) => {
 // Posten aktualisieren (Inline-Editing)
 app.put('/api/items/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
-  if (!item) return res.status(404).json({ error: 'Posten nicht gefunden' });
+  if (!item) return res.status(404).json({ error: 'Kostenpunkt nicht gefunden' });
   const { name = item.name, url = item.url || '', dueDate = item.due_date || '', costMin = item.cost_min, costExpected = item.cost_expected, costMax = item.cost_max, status = item.status, actualCost = item.actual_cost, paidDate = item.paid_date || '' } = req.body;
-  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![costMin, costExpected, costMax].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Postendaten; bezahlte Posten benötigen einen Ist-Betrag' });
+  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![costMin, costExpected, costMax].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten; bezahlte Kostenpunkte benötigen einen Ist-Betrag' });
   const update = db.prepare(`
     UPDATE budget_items
     SET name = ?, url = ?, due_date = ?, cost_min = ?, cost_expected = ?, cost_max = ?, status = ?, actual_cost = ?, paid_date = ?
@@ -182,7 +185,7 @@ app.put('/api/items/:id', (req, res) => {
 // 5. Posten löschen
 app.delete('/api/items/:id', (req, res) => {
   const result = db.prepare('DELETE FROM budget_items WHERE id = ?').run(req.params.id);
-  res.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'Posten nicht gefunden' });
+  res.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'Kostenpunkt nicht gefunden' });
 });
 
 
