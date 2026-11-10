@@ -24,6 +24,9 @@
       </div>
       
       <div class="flex items-center gap-2">
+        <span id="accountName" class="text-xs text-slate-500"></span>
+        <button onclick="editAccount()" class="border border-slate-300 rounded-lg px-2 py-1 text-sm">Konto</button>
+        <button onclick="logout()" class="border border-slate-300 rounded-lg px-2 py-1 text-sm">Abmelden</button>
         <select id="projectSelect" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="loadProject(this.value)"></select>
         <button onclick="createProjectPrompt()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg shadow-sm transition">+ Projekt</button>
         <button onclick="exportProject()" title="Projekt als JSON exportieren" class="border border-slate-300 hover:bg-slate-50 text-slate-600 text-sm p-1.5 rounded-lg">💾</button>
@@ -223,6 +226,23 @@
   </div>
 
   <script>
+    // Alle API-Änderungen tragen den CSRF-Schutz; abgelaufene Sitzungen führen zur Anmeldung.
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (url, options = {}) => {
+      if (typeof url === 'string' && url.startsWith('/api/')) {
+        const headers = new Headers(options.headers);
+        if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers.set('X-BudgetPlanner', '1');
+        const response = await nativeFetch(url, { ...options, headers });
+        if (response.status === 401) { window.location.replace('/login.html'); throw new Error('Bitte anmelden'); }
+        return response;
+      }
+      return nativeFetch(url, options);
+    };
+    async function logout() {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); }
+      finally { window.location.replace('/login.html'); }
+    }
+    let currentAccount = null;
     let currentProjectId = null;
     let currentProject = null;
 
@@ -653,7 +673,10 @@
       button.textContent = submit;
       button.className = `px-4 py-2 text-sm text-white font-medium rounded-lg ${danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-indigo-600 hover:bg-indigo-700'}`;
       button.disabled = false;
-      const close = () => { modal.classList.add('hidden'); document.removeEventListener('keydown', onKey); previousFocus?.focus(); };
+      const close = () => {
+        for (const input of Object.values(inputs)) if (input.type === 'password') input.value = '';
+        modal.classList.add('hidden'); document.removeEventListener('keydown', onKey); previousFocus?.focus();
+      };
       const onKey = event => { if (event.key === 'Escape' && !button.disabled) close(); };
       document.getElementById('actionCancel').onclick = close;
       document.addEventListener('keydown', onKey);
@@ -670,6 +693,36 @@
     }
     function showError(message) {
       showAction({ title: 'Hinweis', description: message, submit: 'Schließen', onSubmit: async () => {} });
+    }
+    function editAccount() {
+      if (!currentAccount) return;
+      showAction({ title: 'Kontoeinstellungen', description: 'Benutzername: ' + currentAccount.username, submit: 'Speichern', fields: [
+        { name: 'displayName', label: 'Anzeigename', value: currentAccount.displayName, required: true },
+        { name: 'email', label: 'E-Mail-Adresse (optional)', type: 'email', value: currentAccount.email }
+      ], onSubmit: async values => {
+        const profile = await api('/api/auth/profile', 'PUT', values);
+        currentAccount = { ...currentAccount, ...profile };
+        document.getElementById('accountName').textContent = currentAccount.displayName;
+      } });
+      const passwordButton = document.createElement('button');
+      passwordButton.type = 'button';
+      passwordButton.className = 'text-sm text-indigo-700 hover:underline';
+      passwordButton.textContent = 'Passwort ändern';
+      passwordButton.onclick = () => {
+        document.getElementById('actionCancel').click();
+        editPassword();
+      };
+      document.getElementById('actionFields').appendChild(passwordButton);
+    }
+    function editPassword() {
+      showAction({ title: 'Passwort ändern', description: 'Mindestens 12 Zeichen. Andere Sitzungen werden abgemeldet.', fields: [
+        { name: 'current', label: 'Aktuelles Passwort', type: 'password', required: true },
+        { name: 'next', label: 'Neues Passwort', type: 'password', required: true },
+        { name: 'confirm', label: 'Neues Passwort wiederholen', type: 'password', required: true }
+      ], onSubmit: async values => {
+        if (values.next !== values.confirm) throw new Error('Die neuen Passwörter stimmen nicht überein.');
+        await api('/api/auth/password', 'PUT', { currentPassword: values.current, newPassword: values.next });
+      } });
     }
     function editProject() {
       if (!currentProject) return;
@@ -729,7 +782,14 @@
       finally { input.value = ''; }
     }
 
-    init();
+    fetch('/api/auth/me').then(response => {
+      if (!response.ok) throw new Error('Anmeldung fehlgeschlagen');
+      return response.json();
+    }).then(user => {
+      currentAccount = user;
+      document.getElementById('accountName').textContent = user.displayName;
+      return init();
+    }).catch(() => {});
   </script>
 </body>
 </html>
