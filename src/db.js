@@ -40,4 +40,15 @@ db.exec(`
   );
 `);
 
+// Bestehende Datenbanken schrittweise erweitern, ohne vorhandene Werte zu verändern.
+for (const [table, column, definition] of [
+  ['projects', 'budget', 'REAL'], ['projects', 'archived', 'INTEGER NOT NULL DEFAULT 0'],
+  ['budget_items', 'status', "TEXT NOT NULL DEFAULT 'planned'"],
+  ['budget_items', 'actual_cost', 'REAL'], ['budget_items', 'paid_date', 'TEXT']
+]) {
+  if (!db.pragma(`table_info(${table})`).some(field => field.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 module.exports = db;
