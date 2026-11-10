@@ -13,9 +13,14 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+const validAmount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e9;
+const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
+const validDate = value => value === '' || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value);
+const statuses = ['planned', 'ordered', 'paid'];
+
 // 1. Projekte abrufen oder erstellen
 app.get('/api/projects', (req, res) => {
-  const projects = db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all();
+  const projects = db.prepare('SELECT * FROM projects ORDER BY archived, created_at DESC, id DESC').all();
   res.json(projects);
 });
 
@@ -24,16 +29,54 @@ const templates = {
   renovation: ['Planung', 'Böden', 'Wände & Decken', 'Material & Werkzeuge', 'Handwerker', 'Puffer']
 };
 app.post('/api/projects', (req, res) => {
-  const { name, description, template } = req.body;
+  const { name, description, template, budget = null } = req.body;
+  if (!validName(name) || (budget !== null && !validAmount(budget))) return res.status(400).json({ error: 'Ungültiger Projektname oder Budget' });
   if (template && !Object.hasOwn(templates, template)) return res.status(400).json({ error: 'Unbekannte Vorlage' });
   // Projekt und Kategorien gemeinsam speichern, damit keine halbe Vorlage entsteht.
   const id = db.transaction(() => {
-    const result = db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name, description || '');
+    const result = db.prepare('INSERT INTO projects (name, description, budget) VALUES (?, ?, ?)').run(name.trim(), description || '', budget);
     const insert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
     (templates[template] || []).forEach((category, index) => insert.run(result.lastInsertRowid, category, index));
     return result.lastInsertRowid;
   })();
   res.json({ id, name, description });
+});
+
+app.put('/api/projects/:id', (req, res) => {
+  const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Projekt nicht gefunden' });
+  const { name = project.name, budget = project.budget, archived = project.archived } = req.body;
+  if (!validName(name) || (budget !== null && !validAmount(budget)) || ![0, 1].includes(archived)) return res.status(400).json({ error: 'Ungültige Projektdaten' });
+  db.prepare('UPDATE projects SET name = ?, budget = ?, archived = ? WHERE id = ?').run(name.trim(), budget, archived, project.id);
+  res.json({ success: true });
+});
+app.delete('/api/projects/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM projects WHERE id = ?').run(req.params.id);
+  res.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'Projekt nicht gefunden' });
+});
+
+// Ein Import erstellt immer ein neues Projekt; die Transaktion verhindert Teilimporte.
+app.post('/api/import', (req, res) => {
+  const data = req.body;
+  const project = data && data.project;
+  if (!project || !validName(project.name) || !['1.0', '2.0'].includes(data.version) || !Array.isArray(data.categories) || data.categories.length > 500 || (project.budget != null && !validAmount(project.budget))) return res.status(400).json({ error: 'Ungültige Exportdatei' });
+  for (const cat of data.categories) {
+    if (!cat || !validName(cat.name) || !Array.isArray(cat.items) || cat.items.length > 5000 || !Number.isSafeInteger(cat.sort_order ?? 0)) return res.status(400).json({ error: 'Ungültige Kategorie' });
+    for (const item of cat.items) {
+      if (!item || !validName(item.name) || typeof (item.url ?? '') !== 'string' || !validDate(item.due_date || '') || !validDate(item.paid_date || '') || ![item.cost_min, item.cost_expected, item.cost_max].every(validAmount) || !statuses.includes(item.status || 'planned') || (item.actual_cost != null && !validAmount(item.actual_cost)) || (item.status === 'paid' && item.actual_cost == null)) return res.status(400).json({ error: 'Ungültiger Posten' });
+    }
+  }
+  const id = db.transaction(() => {
+    const projectId = db.prepare('INSERT INTO projects (name, description, budget, archived) VALUES (?, ?, ?, ?)').run(project.name.trim(), typeof project.description === 'string' ? project.description : '', project.budget ?? null, project.archived === 1 ? 1 : 0).lastInsertRowid;
+    const categoryInsert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
+    const itemInsert = db.prepare('INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max, status, actual_cost, paid_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const cat of data.categories) {
+      const catId = categoryInsert.run(projectId, cat.name.trim(), cat.sort_order ?? 0).lastInsertRowid;
+      for (const item of cat.items) itemInsert.run(catId, item.name.trim(), item.url || '', item.due_date || '', item.cost_min, item.cost_expected, item.cost_max, item.status || 'planned', item.actual_cost ?? null, item.paid_date || '');
+    }
+    return projectId;
+  })();
+  res.status(201).json({ id });
 });
 
 // 2. Gesamtes Projekt inklusive Kategorien, Items & Aggregationen laden
@@ -60,24 +103,43 @@ app.get('/api/projects/:id', (req, res) => {
   const totalExpected = items.reduce((acc, i) => acc + (Number(i.cost_expected) || 0), 0);
   const totalMax = items.reduce((acc, i) => acc + (Number(i.cost_max) || 0), 0);
 
+  const actual = items.reduce((sum, item) => sum + (item.actual_cost || 0), 0);
+  // Bereits bezahlte Posten ersetzen ihren Planwert durch die tatsächlichen Kosten.
+  const forecast = items.reduce((sum, item) => sum + (item.status === 'paid' && item.actual_cost !== null ? item.actual_cost : item.cost_expected), 0);
   res.json({
     project,
     categories: structuredCategories,
-    summary: { totalMin, totalExpected, totalMax }
+    summary: { totalMin, totalExpected, totalMax, actual, forecast, remaining: project.budget === null ? null : project.budget - forecast }
   });
 });
 
 // 3. Kategorie anlegen
 app.post('/api/categories', (req, res) => {
   const { projectId, name } = req.body;
+  if (!validName(name)) return res.status(400).json({ error: 'Ungültiger Kategoriename' });
+  if (!db.prepare('SELECT id FROM projects WHERE id = ?').get(projectId)) return res.status(404).json({ error: 'Projekt nicht gefunden' });
   const insert = db.prepare('INSERT INTO categories (project_id, name) VALUES (?, ?)');
   const result = insert.run(projectId, name);
   res.json({ id: result.lastInsertRowid, projectId, name });
+});
+app.put('/api/categories/:id', (req, res) => {
+  const category = db.prepare('SELECT * FROM categories WHERE id = ?').get(req.params.id);
+  if (!category) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
+  const { name = category.name, sortOrder = category.sort_order } = req.body;
+  if (!validName(name) || !Number.isSafeInteger(sortOrder) || Math.abs(sortOrder) > 100000) return res.status(400).json({ error: 'Ungültige Kategorie' });
+  db.prepare('UPDATE categories SET name = ?, sort_order = ? WHERE id = ?').run(name.trim(), sortOrder, category.id);
+  res.json({ success: true });
+});
+app.delete('/api/categories/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
+  res.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'Kategorie nicht gefunden' });
 });
 
 // 4. Posten anlegen
 app.post('/api/items', (req, res) => {
   const { categoryId, name, url, dueDate, costMin, costExpected, costMax } = req.body;
+  if (!validName(name) || (url != null && typeof url !== 'string') || !validDate(dueDate || '') || ![costMin, costExpected, costMax].every(validAmount)) return res.status(400).json({ error: 'Ungültige Postendaten' });
+  if (!db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId)) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
   const insert = db.prepare(`
     INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -96,15 +158,13 @@ app.post('/api/items', (req, res) => {
 
 // Posten aktualisieren (Inline-Editing)
 app.put('/api/items/:id', (req, res) => {
-  const { name, url, dueDate, costMin, costExpected, costMax } = req.body;
+  const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Posten nicht gefunden' });
+  const { name = item.name, url = item.url || '', dueDate = item.due_date || '', costMin = item.cost_min, costExpected = item.cost_expected, costMax = item.cost_max, status = item.status, actualCost = item.actual_cost, paidDate = item.paid_date || '' } = req.body;
+  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![costMin, costExpected, costMax].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Postendaten; bezahlte Posten benötigen einen Ist-Betrag' });
   const update = db.prepare(`
     UPDATE budget_items
-    SET name = COALESCE(?, name),
-        url = COALESCE(?, url),
-        due_date = COALESCE(?, due_date),
-        cost_min = COALESCE(?, cost_min),
-        cost_expected = COALESCE(?, cost_expected),
-        cost_max = COALESCE(?, cost_max)
+    SET name = ?, url = ?, due_date = ?, cost_min = ?, cost_expected = ?, cost_max = ?, status = ?, actual_cost = ?, paid_date = ?
     WHERE id = ?
   `);
   
@@ -112,9 +172,7 @@ app.put('/api/items/:id', (req, res) => {
     name,
     url,
     dueDate,
-    costMin !== undefined ? Number(costMin) : null,
-    costExpected !== undefined ? Number(costExpected) : null,
-    costMax !== undefined ? Number(costMax) : null,
+    costMin, costExpected, costMax, status, actualCost, paidDate,
     req.params.id
   );
   
@@ -123,8 +181,8 @@ app.put('/api/items/:id', (req, res) => {
 
 // 5. Posten löschen
 app.delete('/api/items/:id', (req, res) => {
-  db.prepare('DELETE FROM budget_items WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+  const result = db.prepare('DELETE FROM budget_items WHERE id = ?').run(req.params.id);
+  res.status(result.changes ? 200 : 404).json(result.changes ? { success: true } : { error: 'Posten nicht gefunden' });
 });
 
 
@@ -209,7 +267,7 @@ app.get('/api/projects/:id/export', (req, res) => {
   `).all(project.id);
 
   const exportData = {
-    version: '1.0',
+    version: '2.0',
     exportedAt: new Date().toISOString(),
     project,
     categories: categories.map(cat => ({
@@ -221,7 +279,8 @@ app.get('/api/projects/:id/export', (req, res) => {
         due_date: i.due_date,
         cost_min: i.cost_min,
         cost_expected: i.cost_expected,
-        cost_max: i.cost_max
+        cost_max: i.cost_max,
+        status: i.status, actual_cost: i.actual_cost, paid_date: i.paid_date
       }))
     }))
   };
