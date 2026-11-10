@@ -30,6 +30,21 @@ const validAmount = value => typeof value === 'number' && Number.isFinite(value)
 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
 const validDate = value => value === '' || (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value);
 const statuses = ['planned', 'ordered', 'paid'];
+const validKind = kind => ['expense', 'income'].includes(kind);
+const validBounds = value => value === 0 || value === 1;
+// Einnahmen verringern die Belastung: im günstigsten Fall mit ihrem Maximalwert.
+function summarize(items) {
+  const signed = (item, amount) => item.kind === 'income' ? -amount : amount;
+  const bound = (item, side) => item.bounds_enabled ? item[side] : item.cost_expected;
+  const totalMin = sumMoney(items.map(i => signed(i, bound(i, i.kind === 'income' ? 'cost_max' : 'cost_min'))));
+  const totalExpected = sumMoney(items.map(i => signed(i, i.cost_expected)));
+  const totalMax = sumMoney(items.map(i => signed(i, bound(i, i.kind === 'income' ? 'cost_min' : 'cost_max'))));
+  const expenses = sumMoney(items.filter(i => i.kind !== 'income').map(i => i.cost_expected));
+  const income = sumMoney(items.filter(i => i.kind === 'income').map(i => i.cost_expected));
+  const actual = sumMoney(items.map(i => signed(i, i.actual_cost || 0)));
+  const forecast = sumMoney(items.map(i => signed(i, i.status === 'paid' && i.actual_cost !== null ? i.actual_cost : i.cost_expected)));
+  return { totalMin, totalExpected, totalMax, expenses, income, actual, forecast };
+}
 
 // 1. Projekte abrufen oder erstellen
 app.get('/api/projects', (req, res) => {
@@ -72,20 +87,20 @@ app.delete('/api/projects/:id', (req, res) => {
 app.post('/api/import', (req, res) => {
   const data = req.body;
   const project = data && data.project;
-  if (!project || !validName(project.name) || !['1.0', '2.0'].includes(data.version) || !Array.isArray(data.categories) || data.categories.length > 500 || (project.budget != null && !validAmount(project.budget))) return res.status(400).json({ error: 'Ungültige Exportdatei' });
+  if (!project || !validName(project.name) || !['1.0', '2.0', '3.0'].includes(data.version) || !Array.isArray(data.categories) || data.categories.length > 500 || (project.budget != null && !validAmount(project.budget))) return res.status(400).json({ error: 'Ungültige Exportdatei' });
   for (const cat of data.categories) {
     if (!cat || !validName(cat.name) || !Array.isArray(cat.items) || cat.items.length > 5000 || !Number.isSafeInteger(cat.sort_order ?? 0)) return res.status(400).json({ error: 'Ungültige Kategorie' });
     for (const item of cat.items) {
-      if (!item || !validName(item.name) || typeof (item.url ?? '') !== 'string' || !validDate(item.due_date || '') || !validDate(item.paid_date || '') || ![item.cost_min, item.cost_expected, item.cost_max].every(validAmount) || !statuses.includes(item.status || 'planned') || (item.actual_cost != null && !validAmount(item.actual_cost)) || (item.status === 'paid' && item.actual_cost == null)) return res.status(400).json({ error: 'Ungültiger Kostenpunkt' });
+      if (!item || !validName(item.name) || typeof (item.url ?? '') !== 'string' || !validDate(item.due_date || '') || !validDate(item.paid_date || '') || ![item.cost_min, item.cost_expected, item.cost_max].every(validAmount) || !statuses.includes(item.status || 'planned') || !validKind(item.kind ?? 'expense') || !validBounds(item.bounds_enabled ?? 1) || (item.actual_cost != null && !validAmount(item.actual_cost)) || (item.status === 'paid' && item.actual_cost == null)) return res.status(400).json({ error: 'Ungültiger Kostenpunkt' });
     }
   }
   const id = db.transaction(() => {
     const projectId = db.prepare('INSERT INTO projects (name, description, budget, archived, owner_id) VALUES (?, ?, ?, ?, ?)').run(project.name.trim(), typeof project.description === 'string' ? project.description : '', project.budget ?? null, project.archived === 1 ? 1 : 0, req.user.id).lastInsertRowid;
     const categoryInsert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
-    const itemInsert = db.prepare('INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max, status, actual_cost, paid_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const itemInsert = db.prepare('INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max, status, actual_cost, paid_date, kind, bounds_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     for (const cat of data.categories) {
       const catId = categoryInsert.run(projectId, cat.name.trim(), cat.sort_order ?? 0).lastInsertRowid;
-      for (const item of cat.items) itemInsert.run(catId, item.name.trim(), item.url || '', item.due_date || '', item.cost_min, item.cost_expected, item.cost_max, item.status || 'planned', item.actual_cost ?? null, item.paid_date || '');
+      for (const item of cat.items) itemInsert.run(catId, item.name.trim(), item.url || '', item.due_date || '', item.cost_min, item.cost_expected, item.cost_max, item.status || 'planned', item.actual_cost ?? null, item.paid_date || '', item.kind ?? 'expense', item.bounds_enabled ?? 1);
     }
     return projectId;
   })();
@@ -111,19 +126,9 @@ app.get('/api/projects/:id', (req, res) => {
     items: items.filter(item => item.category_id === cat.id)
   }));
 
-  // Aggregationen (Min, Erwartet, Max) berechnen
-  const totalMin = sumMoney(items.map(i => i.cost_min));
-  const totalExpected = sumMoney(items.map(i => i.cost_expected));
-  const totalMax = sumMoney(items.map(i => i.cost_max));
-
-  const actual = sumMoney(items.map(item => item.actual_cost));
-  // Bereits bezahlte Kostenpunkte ersetzen ihren Planwert durch den Ist-Betrag.
-  const forecast = sumMoney(items.map(item => item.status === 'paid' && item.actual_cost !== null ? item.actual_cost : item.cost_expected));
-  res.json({
-    project,
-    categories: structuredCategories,
-    summary: { totalMin, totalExpected, totalMax, actual, forecast, remaining: project.budget === null ? null : sumMoney([project.budget, -forecast]) }
-  });
+  const summary = summarize(items);
+  summary.remaining = project.budget === null ? null : sumMoney([project.budget, -summary.forecast]);
+  res.json({ project, categories: structuredCategories, summary });
 });
 
 // 3. Kategorie anlegen
@@ -150,12 +155,14 @@ app.delete('/api/categories/:id', (req, res) => {
 
 // 4. Posten anlegen
 app.post('/api/items', (req, res) => {
-  const { categoryId, name, url, dueDate, costMin, costExpected, costMax } = req.body;
-  if (!validName(name) || (url != null && typeof url !== 'string') || !validDate(dueDate || '') || ![costMin, costExpected, costMax].every(validAmount)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten' });
+  const { categoryId, name, url, dueDate, costExpected, kind = 'expense', boundsEnabled = 0 } = req.body;
+  const costMin = req.body.costMin ?? costExpected, costMax = req.body.costMax ?? costExpected;
+  if (!validName(name) || (url != null && typeof url !== 'string') || !validDate(dueDate || '') || ![costMin, costExpected, costMax].every(validAmount) || !validKind(kind) || !validBounds(boundsEnabled)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten' });
+  if (boundsEnabled && (costMin > costExpected || costMax < costExpected)) return res.status(400).json({ error: 'Min darf nicht über und Max nicht unter dem Planwert liegen.' });
   if (!db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId)) return res.status(404).json({ error: 'Kategorie nicht gefunden' });
   const insert = db.prepare(`
-    INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max, kind, bounds_enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const result = insert.run(
     categoryId,
@@ -164,7 +171,8 @@ app.post('/api/items', (req, res) => {
     dueDate || '',
     Number(costMin) || 0,
     Number(costExpected) || 0,
-    Number(costMax) || 0
+    Number(costMax) || 0,
+    kind, boundsEnabled
   );
   res.json({ id: result.lastInsertRowid });
 });
@@ -173,14 +181,17 @@ app.post('/api/items', (req, res) => {
 app.put('/api/items/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Kostenpunkt nicht gefunden' });
-  const { name = item.name, url = item.url || '', dueDate = item.due_date || '', costMin = item.cost_min, costExpected = item.cost_expected, costMax = item.cost_max, status = item.status, actualCost = item.actual_cost, paidDate = item.paid_date || '' } = req.body;
+  const { name = item.name, url = item.url || '', dueDate = item.due_date || '', costMin = item.cost_min, costExpected = item.cost_expected, costMax = item.cost_max, status = item.status, actualCost = item.actual_cost, paidDate = item.paid_date || '', kind = item.kind, boundsEnabled = item.bounds_enabled } = req.body;
   // Gelöschte Grenzen übernehmen den Planwert; eine ausdrücklich eingegebene 0 bleibt erhalten.
-  const min = costMin === null ? costExpected : costMin;
-  const max = costMax === null ? costExpected : costMax;
-  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![min, costExpected, max].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten; bezahlte Kostenpunkte benötigen einen Ist-Betrag' });
+  let min = costMin === null ? costExpected : costMin;
+  let max = costMax === null ? costExpected : costMax;
+  // Noch nie veränderte Standardgrenzen folgen dem Plan auch im deaktivierten Zustand.
+  if (!boundsEnabled && item.cost_min === item.cost_expected && item.cost_max === item.cost_expected && costMin === item.cost_min && costMax === item.cost_max) min = max = costExpected;
+  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![min, costExpected, max].every(validAmount) || !validKind(kind) || !validBounds(boundsEnabled) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten; bezahlte Kostenpunkte benötigen einen Ist-Betrag' });
+  if (boundsEnabled && (min > costExpected || max < costExpected) && (!item.bounds_enabled || min !== item.cost_min || max !== item.cost_max || costExpected !== item.cost_expected)) return res.status(400).json({ error: 'Min darf nicht über und Max nicht unter dem Planwert liegen.' });
   const update = db.prepare(`
     UPDATE budget_items
-    SET name = ?, url = ?, due_date = ?, cost_min = ?, cost_expected = ?, cost_max = ?, status = ?, actual_cost = ?, paid_date = ?
+    SET name = ?, url = ?, due_date = ?, cost_min = ?, cost_expected = ?, cost_max = ?, status = ?, actual_cost = ?, paid_date = ?, kind = ?, bounds_enabled = ?
     WHERE id = ?
   `);
   
@@ -188,7 +199,7 @@ app.put('/api/items/:id', (req, res) => {
     name,
     url,
     dueDate,
-    min, costExpected, max, status, actualCost, paidDate,
+    min, costExpected, max, status, actualCost, paidDate, kind, boundsEnabled,
     req.params.id
   );
   
@@ -236,38 +247,19 @@ app.get('/api/projects/:id/completeness', (req, res) => {
 // 2. Periodisierung / Cashflow nach Monaten
 app.get('/api/projects/:id/timeline', (req, res) => {
   const items = db.prepare(`
-    SELECT b.name, b.due_date, b.cost_min, b.cost_expected, b.cost_max, c.name as category_name
+    SELECT b.*, c.name as category_name
     FROM budget_items b
     JOIN categories c ON b.category_id = c.id
     WHERE c.project_id = ?
     ORDER BY b.due_date ASC
   `).all(req.params.id);
 
-  const timeline = {};
-
-  items.forEach(item => {
-    let periodKey = 'Ohne Datum';
-    if (item.due_date && item.due_date.length >= 7) {
-      periodKey = item.due_date.substring(0, 7); // JJJJ-MM
-    }
-
-    if (!timeline[periodKey]) {
-      timeline[periodKey] = {
-        period: periodKey,
-        itemsCount: 0,
-        totalMin: 0,
-        totalExpected: 0,
-        totalMax: 0
-      };
-    }
-
-    timeline[periodKey].itemsCount += 1;
-    timeline[periodKey].totalMin += Number(item.cost_min) || 0;
-    timeline[periodKey].totalExpected += Number(item.cost_expected) || 0;
-    timeline[periodKey].totalMax += Number(item.cost_max) || 0;
-  });
-
-  res.json(Object.values(timeline));
+  const groups = {};
+  for (const item of items) {
+    const period = item.due_date && item.due_date.length >= 7 ? item.due_date.substring(0, 7) : 'Ohne Datum';
+    (groups[period] ||= []).push(item);
+  }
+  res.json(Object.entries(groups).map(([period, entries]) => ({ period, itemsCount: entries.length, ...summarize(entries) })));
 });
 
 // 3. JSON Export des gesamten Projekts
@@ -283,7 +275,7 @@ app.get('/api/projects/:id/export', (req, res) => {
   `).all(project.id);
 
   const exportData = {
-    version: '2.0',
+    version: '3.0',
     exportedAt: new Date().toISOString(),
     project,
     categories: categories.map(cat => ({
@@ -296,7 +288,8 @@ app.get('/api/projects/:id/export', (req, res) => {
         cost_min: i.cost_min,
         cost_expected: i.cost_expected,
         cost_max: i.cost_max,
-        status: i.status, actual_cost: i.actual_cost, paid_date: i.paid_date
+        status: i.status, actual_cost: i.actual_cost, paid_date: i.paid_date,
+        kind: i.kind, bounds_enabled: i.bounds_enabled
       }))
     }))
   };

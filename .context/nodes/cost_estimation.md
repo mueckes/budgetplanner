@@ -1,9 +1,8 @@
-# Kosten- und Budgetberechnung
+# Kosten, Einnahmen und Szenarien
 
-- Pro Kostenpunkt werden `cost_min`, `cost_expected` und `cost_max` getrennt gespeichert. Die API summiert sie je Projekt; ein gewichteter PERT-Erwartungswert oder Wahrscheinlichkeitsmodell wird nicht berechnet.
-- Beim manuellen Anlegen werden leere Grenzen beim Speichern mit 90 % bzw. 115 % des Planwerts gefüllt. Beim Produktabruf setzt das Frontend 95 % bzw. 110 % des gefundenen Preises; Vorschläge werden mit 80 % bzw. 130 % angelegt.
-- Die Prognose verwendet bei `paid` den erfassten Ist-Betrag, sonst den Planbetrag. `actual` summiert alle erfassten Ist-Beträge unabhängig vom Status. `remaining` ist Budget minus Prognose und bei fehlendem Budget `null`.
-- Die Monatsansicht gruppiert die geplanten Beträge nach Fälligkeitsmonat, einschließlich bezahlter Kostenpunkte und undatierter Einträge. Sie berechnet weder Kontostand noch Einnahmen und ist keine Liquiditätsprognose.
-- Projektsummen werden in Cent gerundet und addiert. Die Datenbank speichert weiterhin REAL; Monats- und Darstellungssummen sind noch nicht vollständig auf Cent-Arithmetik umgestellt. Die API erzwingt Min ≤ Plan ≤ Max nicht: Insbesondere bei einzelnen Inline-Änderungen müsste ein gemeinsamer Bearbeitungsdialog eingeführt werden. Ungültige Inline-Beträge werden abgelehnt; deutsche Kommawerte und Tausenderpunkte mit Nachkommastellen werden erkannt.
-
-- Löscht man Min oder Max beim Bearbeiten, wird die jeweilige Grenze auf den aktuellen Planwert gesetzt. Bei neuen Kostenpunkten gelten die Prozentsätze für unberührte Felder; bewusst geleerte Felder übernehmen den Planwert. Eine ausdrücklich eingegebene 0 bleibt erhalten. Bereits gespeicherte Werte werden nicht automatisch verändert.
+- Jeder Eintrag ist eine Ausgabe (`expense`) oder Einnahme (`income`); gespeicherte Beträge sind positiv. Alte Einträge werden bei Migration als Ausgaben mit aktiven Grenzen übernommen. Neue Einträge haben standardmäßig keine aktive Spanne.
+- Ohne aktive Min-/Max-Spanne wird der Planwert in allen Szenarien verwendet. Aktive Spannen können über den Eintrag ein- und ausgeschaltet werden. Dabei bleiben gespeicherte Grenzen erhalten; unberührte Standardgrenzen folgen Änderungen des Planwerts. Leere aktive Grenzen übernehmen den Planwert.
+- Szenarien zeigen die Nettobelastung: Plan = Ausgabenplan − Einnahmenplan; günstig = Ausgaben-Min − Einnahmen-Max; ungünstig = Ausgaben-Max − Einnahmen-Min. Negative Werte stehen für einen Überschuss. Plan und Übersicht zeigen zusätzlich Einnahmen und Ausgaben separat. Neue und geänderte aktive Grenzen müssen Min ≤ Plan ≤ Max erfüllen; Altbestände bleiben unangetastet.
+- Die Prognose verwendet bei `paid` den Ist-Betrag, sonst den Planbetrag, und verrechnet Einnahmen negativ. Der Budgetrest ist Budget minus Nettoprognose und bei fehlendem Budget `null`. Die Fälligkeitsansicht zeigt gruppierte Planbeträge, keine Kontostandsprognose.
+- SQLite speichert weiterhin REAL, Projektsummen werden centweise berechnet. Die Anzeige selbst ersetzt keine Buchführung.
+- Version 3.0 der Projektdateien sichert Art und Einstellung der Spanne. Ältere Exporte werden als Ausgaben mit aktiver Spanne importiert; Import erzeugt ein eigenes neues Projekt.
