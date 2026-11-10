@@ -6,6 +6,7 @@ const dns = require('dns').promises;
 const net = require('net');
 const http = require('http');
 const https = require('https');
+const { installAuth } = require('./auth');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,6 +16,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), { setHeaders: (res, file) => {
   if (file.endsWith('.html')) res.setHeader('Cache-Control', 'no-store');
 } }));
+installAuth(app);
 
 const validAmount = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1e9;
 const validName = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 200;
@@ -23,7 +25,7 @@ const statuses = ['planned', 'ordered', 'paid'];
 
 // 1. Projekte abrufen oder erstellen
 app.get('/api/projects', (req, res) => {
-  const projects = db.prepare('SELECT * FROM projects ORDER BY archived, created_at DESC, id DESC').all();
+  const projects = db.prepare('SELECT id, name, description, created_at, budget, archived FROM projects WHERE owner_id = ? ORDER BY archived, created_at DESC, id DESC').all(req.user.id);
   res.json(projects);
 });
 
@@ -37,7 +39,7 @@ app.post('/api/projects', (req, res) => {
   if (template && !Object.hasOwn(templates, template)) return res.status(400).json({ error: 'Unbekannte Vorlage' });
   // Projekt und Kategorien gemeinsam speichern, damit keine halbe Vorlage entsteht.
   const id = db.transaction(() => {
-    const result = db.prepare('INSERT INTO projects (name, description, budget) VALUES (?, ?, ?)').run(name.trim(), description || '', budget);
+    const result = db.prepare('INSERT INTO projects (name, description, budget, owner_id) VALUES (?, ?, ?, ?)').run(name.trim(), description || '', budget, req.user.id);
     const insert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
     (templates[template] || []).forEach((category, index) => insert.run(result.lastInsertRowid, category, index));
     return result.lastInsertRowid;
@@ -70,7 +72,7 @@ app.post('/api/import', (req, res) => {
     }
   }
   const id = db.transaction(() => {
-    const projectId = db.prepare('INSERT INTO projects (name, description, budget, archived) VALUES (?, ?, ?, ?)').run(project.name.trim(), typeof project.description === 'string' ? project.description : '', project.budget ?? null, project.archived === 1 ? 1 : 0).lastInsertRowid;
+    const projectId = db.prepare('INSERT INTO projects (name, description, budget, archived, owner_id) VALUES (?, ?, ?, ?, ?)').run(project.name.trim(), typeof project.description === 'string' ? project.description : '', project.budget ?? null, project.archived === 1 ? 1 : 0, req.user.id).lastInsertRowid;
     const categoryInsert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
     const itemInsert = db.prepare('INSERT INTO budget_items (category_id, name, url, due_date, cost_min, cost_expected, cost_max, status, actual_cost, paid_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     for (const cat of data.categories) {

@@ -25,6 +25,10 @@ nodes:
     type: concept
     statuses: [planned, ordered, paid]
     note: one actual amount and optional paid date per item
+  concept:accounts:
+    type: concept
+    spec: .context/nodes/accounts.md
+    note: separate accounts, session authentication, per-project ownership
   concept:url_scraping:
     type: concept
     spec: .context/nodes/scraper_policy.md
@@ -35,7 +39,7 @@ nodes:
     type: storage
     file: data/budget.sqlite
     spec: .context/nodes/schema.md
-    tables: [projects, categories, budget_items]
+    tables: [users, sessions, projects, categories, budget_items]
 
   # --- BACKEND (API & SERVICES) ---
   api:projects:
@@ -56,6 +60,10 @@ nodes:
   api:items:
     file: src/server.js
     endpoints: ["POST /api/items", "PUT /api/items/:id", "DELETE /api/items/:id"]
+  api:auth:
+    file: src/auth.js
+    endpoints: ["POST /api/auth/login", "GET /api/auth/me", "POST /api/auth/logout"]
+    note: all API routes require login except login; project and child resources enforce ownership
   api:scraper:
     file: src/server.js
     endpoints: ["POST /api/scrape-url"]
@@ -64,6 +72,9 @@ nodes:
   ui:dashboard:
     file: src/public/index.html
     sections: [statMin, statExpected, statMax, barDiff]
+  ui:login:
+    file: src/public/login.html
+    note: accounts are provisioned locally by the server administrator
   ui:modal_item:
     file: src/public/index.html
     functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
@@ -95,4 +106,5 @@ edges:
   - { from: concept:templates,    rel: seeds,       to: db:sqlite }
   - { from: concept:project_budget, rel: uses, to: [db:sqlite, ui:dashboard] }
   - { from: concept:payment, rel: uses, to: [db:sqlite, api:items] }
+  - { from: concept:accounts, rel: protects, to: [db:sqlite, api:projects, api:items, api:categories] }
   - { from: infra:reverse_proxy,  rel: protects,    to: [api:projects, ui:views] }

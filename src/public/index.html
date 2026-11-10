@@ -24,6 +24,8 @@
       </div>
       
       <div class="flex items-center gap-2">
+        <span id="accountName" class="text-xs text-slate-500"></span>
+        <button onclick="logout()" class="border border-slate-300 rounded-lg px-2 py-1 text-sm">Abmelden</button>
         <select id="projectSelect" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm bg-white font-medium shadow-sm hover:border-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" onchange="loadProject(this.value)"></select>
         <button onclick="createProjectPrompt()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-3.5 py-1.5 rounded-lg shadow-sm transition">+ Projekt</button>
         <button onclick="exportProject()" title="Projekt als JSON exportieren" class="border border-slate-300 hover:bg-slate-50 text-slate-600 text-sm p-1.5 rounded-lg">💾</button>
@@ -223,6 +225,22 @@
   </div>
 
   <script>
+    // Alle API-Änderungen tragen den CSRF-Schutz; abgelaufene Sitzungen führen zur Anmeldung.
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = async (url, options = {}) => {
+      if (typeof url === 'string' && url.startsWith('/api/')) {
+        const headers = new Headers(options.headers);
+        if (!['GET', 'HEAD'].includes((options.method || 'GET').toUpperCase())) headers.set('X-BudgetPlanner', '1');
+        const response = await nativeFetch(url, { ...options, headers });
+        if (response.status === 401) { window.location.replace('/login.html'); throw new Error('Bitte anmelden'); }
+        return response;
+      }
+      return nativeFetch(url, options);
+    };
+    async function logout() {
+      try { await fetch('/api/auth/logout', { method: 'POST' }); }
+      finally { window.location.replace('/login.html'); }
+    }
     let currentProjectId = null;
     let currentProject = null;
 
@@ -729,7 +747,13 @@
       finally { input.value = ''; }
     }
 
-    init();
+    fetch('/api/auth/me').then(response => {
+      if (!response.ok) throw new Error('Anmeldung fehlgeschlagen');
+      return response.json();
+    }).then(user => {
+      document.getElementById('accountName').textContent = user.username;
+      return init();
+    }).catch(() => {});
   </script>
 </body>
 </html>

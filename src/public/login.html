@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anmeldung – BudgetPlanner</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f8fafc; color: #1e293b; margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { box-sizing: border-box; background: white; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 2rem; width: min(90vw, 24rem); box-shadow: 0 4px 15px #0f172a10; }
+    label { display: block; font-size: .85rem; font-weight: 600; margin: 1rem 0 .3rem; }
+    input, button { box-sizing: border-box; width: 100%; font: inherit; padding: .65rem; border: 1px solid #cbd5e1; border-radius: .5rem; }
+    button { margin-top: 1.2rem; color: white; background: #4f46e5; border: 0; cursor: pointer; }
+    p { color: #be123c; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>BudgetPlanner</h1>
+    <p style="color:#64748b">Bitte mit deinem Konto anmelden.</p>
+    <form id="login">
+      <label for="username">Benutzername</label>
+      <input id="username" name="username" autocomplete="username" required maxlength="40" autofocus>
+      <label for="password">Passwort</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required maxlength="256">
+      <p id="error" role="alert" hidden></p>
+      <button type="submit">Anmelden</button>
+    </form>
+  </main>
+  <script>
+    document.getElementById('login').addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector('button');
+      const error = document.getElementById('error');
+      button.disabled = true;
+      error.hidden = true;
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-BudgetPlanner': '1' },
+          body: JSON.stringify({ username: document.getElementById('username').value, password: document.getElementById('password').value })
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || 'Anmeldung fehlgeschlagen');
+        window.location.replace('/');
+      } catch (err) { error.textContent = err.message; error.hidden = false; }
+      finally { button.disabled = false; }
+    });
+  </script>
+</body>
+</html>

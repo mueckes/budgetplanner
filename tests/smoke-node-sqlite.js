@@ -27,15 +27,22 @@ Module._load = function (request, ...args) {
     transaction(fn) { return (...args) => { this.db.exec('BEGIN'); try { const result = fn(...args); this.db.exec('COMMIT'); return result; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }; }
   };
 };
+const db = require('../src/db');
+const { hashPassword } = require('../src/auth');
+const userId = db.prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)').run('tester', hashPassword('test-passwort-sicher')).lastInsertRowid;
+db.prepare('UPDATE projects SET owner_id = ? WHERE id = 1').run(userId);
 process.env.PORT = '39071';
 require('../src/server');
 const base = 'http://127.0.0.1:39071';
+let cookie = '';
 async function request(path, method = 'GET', body) {
-  const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const response = await fetch(base + path, { method, headers: { 'Content-Type': 'application/json', 'X-BudgetPlanner': '1', Cookie: cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
+  if (response.headers.get('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
   return { status: response.status, data: await response.json() };
 }
 (async () => {
   assert.equal((await fetch(base + '/')).headers.get('cache-control'), 'no-store');
+  assert.equal((await request('/api/auth/login', 'POST', { username: 'tester', password: 'test-passwort-sicher' })).status, 200);
   const old = await request('/api/projects/1');
   assert.equal(old.data.project.budget, null);
   assert.equal((await request('/api/projects', 'POST', { name: 'Ohne Budget' })).status, 200);
