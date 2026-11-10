@@ -31,20 +31,22 @@ if (command === 'password' && !existing) {
   process.exit(1);
 }
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-// readline zeigt nur Sternchen, nicht das Passwort; es erscheint weder im Befehl noch in der History.
+// Die Kennworteingabe bleibt unsichtbar und erscheint nicht in der Shell-History.
 rl._writeToOutput = function (text) {
-  if (this.hideInput) this.output.write('*'.repeat([...text].length));
-  else this.output.write(text);
+  if (!this.hideInput) this.output.write(text);
 };
 function password(prompt) {
-  process.stdout.write(prompt);
+  process.stdout.write(prompt + '\n');
   rl.hideInput = true;
   return new Promise(resolve => rl.question('', value => { rl.hideInput = false; process.stdout.write('\n'); resolve(value); }));
 }
 (async () => {
-  const first = await password('Passwort (mindestens 12 Zeichen): ');
-  const second = await password('Passwort wiederholen: ');
+  console.log('Das Passwort muss mindestens 12 Zeichen lang sein.');
+  const first = await password('Passwort vergeben:');
+  const second = await password('Passwort wiederholen:');
   rl.close();
+  process.stdin.pause();
+  process.stdin.unref?.();
   if (!validPassword(first) || first !== second) throw new Error('Passwort ungültig oder Eingaben stimmen nicht überein.');
   const result = db.transaction(() => {
     if (command === 'password') {
