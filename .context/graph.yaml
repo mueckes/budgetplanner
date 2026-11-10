@@ -2,7 +2,7 @@
 meta:
   project: budgetplanner
   architecture: monolith-docker-sqlite
-  version: 1.2.0
+  version: 1.3.0
 
 nodes:
   # --- DOMAIN CONCEPTS ---
@@ -16,6 +16,15 @@ nodes:
   concept:cashflow:
     type: concept
     grouped_by: due_date (YYYY-MM)
+    note: optional planned due-date view, not a bank balance forecast
+  concept:project_budget:
+    type: concept
+    optional: true
+    forecast: paid items use actual_cost, other items use cost_expected
+  concept:payment:
+    type: concept
+    statuses: [planned, ordered, paid]
+    note: one actual amount and optional paid date per item
   concept:url_scraping:
     type: concept
     spec: .context/nodes/scraper_policy.md
@@ -33,11 +42,17 @@ nodes:
     file: src/server.js
     endpoints:
       - "GET /api/projects"
-      - "POST /api/projects (supports ?template)"
+      - "POST /api/projects (template and optional budget in JSON body)"
       - "GET /api/projects/:id"
+      - "PUT /api/projects/:id"
+      - "DELETE /api/projects/:id"
       - "GET /api/projects/:id/completeness"
       - "GET /api/projects/:id/timeline"
       - "GET /api/projects/:id/export"
+      - "POST /api/import (creates a new project)"
+  api:categories:
+    file: src/server.js
+    endpoints: ["POST /api/categories", "PUT /api/categories/:id", "DELETE /api/categories/:id"]
   api:items:
     file: src/server.js
     endpoints: ["POST /api/items", "PUT /api/items/:id", "DELETE /api/items/:id"]
@@ -66,4 +81,6 @@ edges:
   - { from: concept:url_scraping, rel: served_by,   to: api:scraper }
   - { from: api:scraper,          rel: triggers,    to: ui:modal_item }
   - { from: concept:templates,    rel: seeds,       to: db:sqlite }
+  - { from: concept:project_budget, rel: uses, to: [db:sqlite, ui:dashboard] }
+  - { from: concept:payment, rel: uses, to: [db:sqlite, api:items] }
   - { from: infra:reverse_proxy,  rel: protects,    to: [api:projects, ui:views] }
