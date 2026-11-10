@@ -72,6 +72,7 @@ nodes:
   ui:dashboard:
     file: src/public/index.html
     sections: [statMin, statExpected, statMax, barDiff]
+    responsive: "Bis 640px: umgebrochene Navigation und Kostenpunkt-/Fälligkeitskarten; darüber Tabellenansicht."
   ui:login:
     file: src/public/login.html
     note: accounts are provisioned locally by the server administrator
