@@ -67,6 +67,10 @@ nodes:
   ui:modal_item:
     file: src/public/index.html
     functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
+  ui:action_dialog:
+    file: src/public/index.html
+    functions: [showAction, editProject, editCategory, editPayment, deleteProject, deleteCategory]
+    note: reusable in-page form and confirmation dialogs with inline errors
   ui:views:
     file: src/public/index.html
     modes: [categories, timeline]
