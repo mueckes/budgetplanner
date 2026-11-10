@@ -1,0 +1,69 @@
+# BudgetPlanner Knowledge Graph v1.0
+meta:
+  project: budgetplanner
+  architecture: monolith-docker-sqlite
+  version: 1.2.0
+
+nodes:
+  # --- DOMAIN CONCEPTS ---
+  concept:pert:
+    type: concept
+    spec: .context/nodes/pert_logic.md
+    defines: [cost_min, cost_expected, cost_max, bandwidth]
+  concept:templates:
+    type: concept
+    instances: [moving, renovation, empty]
+  concept:cashflow:
+    type: concept
+    grouped_by: due_date (YYYY-MM)
+  concept:url_scraping:
+    type: concept
+    spec: .context/nodes/scraper_policy.md
+    parser: cheerio
+
+  # --- DATA STORAGE ---
+  db:sqlite:
+    type: storage
+    file: data/budget.sqlite
+    spec: .context/nodes/schema.md
+    tables: [projects, categories, budget_items]
+
+  # --- BACKEND (API & SERVICES) ---
+  api:projects:
+    file: src/server.js
+    endpoints:
+      - "GET /api/projects"
+      - "POST /api/projects (supports ?template)"
+      - "GET /api/projects/:id"
+      - "GET /api/projects/:id/completeness"
+      - "GET /api/projects/:id/timeline"
+      - "GET /api/projects/:id/export"
+  api:items:
+    file: src/server.js
+    endpoints: ["POST /api/items", "PUT /api/items/:id", "DELETE /api/items/:id"]
+  api:scraper:
+    file: src/server.js
+    endpoints: ["POST /api/scrape-url"]
+
+  # --- FRONTEND UI ---
+  ui:dashboard:
+    file: src/public/index.html
+    sections: [statMin, statExpected, statMax, barDiff]
+  ui:modal_item:
+    file: src/public/index.html
+    functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
+  ui:views:
+    file: src/public/index.html
+    modes: [categories, timeline]
+
+  # --- INFRASTRUCTURE ---
+  infra:reverse_proxy:
+    spec: .context/nodes/deployment.md
+    components: [nginx, basic_auth, dual_ssl, docker_bridge]
+
+edges:
+  - { from: concept:pert,         rel: implements,  to: [db:sqlite, ui:dashboard] }
+  - { from: concept:url_scraping, rel: served_by,   to: api:scraper }
+  - { from: api:scraper,          rel: triggers,    to: ui:modal_item }
+  - { from: concept:templates,    rel: seeds,       to: db:sqlite }
+  - { from: infra:reverse_proxy,  rel: protects,    to: [api:projects, ui:views] }
