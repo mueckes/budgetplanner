@@ -1,6 +1,6 @@
 # DB Schema (better-sqlite3)
 
-- **users**: `id` (INTEGER PK), `username` (unique, case-insensitive), `password_hash` (scrypt with salt), `created_at`
+- **users**: `id` (INTEGER PK), `username` (unique, case-insensitive), `password_hash` (scrypt with salt), `created_at`, `display_name` (optional), `email` (optional)
 - **sessions**: `token_hash` (SHA-256), `user_id` (FK), `expires_at` (Unix milliseconds)
 - **projects**: `id` (INTEGER PK), `name` (TEXT), `description` (TEXT), `created_at` (DATETIME), `budget` (REAL, optional), `archived` (INTEGER, default 0), `owner_id` (FK users.id; old projects remain unassigned until first account claims them)
 - **categories**: `id` (INTEGER PK), `project_id` (FK projects.id), `name` (TEXT), `sort_order` (INT)

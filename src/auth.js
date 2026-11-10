@@ -56,13 +56,41 @@ function installAuth(app) {
     const cookie = (req.headers.cookie || '').split(';').map(part => part.trim()).find(part => part.startsWith(cookieName + '='));
     const token = cookie ? cookie.slice(cookieName.length + 1) : '';
     if (!/^[a-f0-9]{64}$/.test(token)) return res.status(401).json({ error: 'Bitte anmelden' });
-    const session = db.prepare('SELECT u.id, u.username FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').get(hashToken(token), Date.now());
+    const session = db.prepare('SELECT u.id, u.username, u.display_name, u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?').get(hashToken(token), Date.now());
     if (!session) return res.status(401).json({ error: 'Bitte anmelden' });
     req.user = session;
     req.sessionToken = token;
     next();
   });
-  app.get('/api/auth/me', (req, res) => res.json({ username: req.user.username }));
+  app.get('/api/auth/me', (req, res) => res.json({ username: req.user.username, displayName: req.user.display_name || req.user.username, email: req.user.email || '' }));
+  app.put('/api/auth/profile', (req, res) => {
+    const { displayName, email } = req.body || {};
+    if (typeof displayName !== 'string' || !displayName.trim() || displayName.trim().length > 80 || typeof email !== 'string' || email.length > 254 || (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) return res.status(400).json({ error: 'Bitte einen gültigen Anzeigenamen und eine gültige E-Mail-Adresse eingeben.' });
+    db.prepare('UPDATE users SET display_name = ?, email = ? WHERE id = ?').run(displayName.trim(), email.trim(), req.user.id);
+    res.json({ displayName: displayName.trim(), email: email.trim() });
+  });
+  app.put('/api/auth/password', (req, res) => {
+    const { currentPassword, newPassword } = req.body || {};
+    if (typeof currentPassword !== 'string' || Buffer.byteLength(currentPassword, 'utf8') > 256 || !validPassword(newPassword)) return res.status(400).json({ error: 'Neues Passwort muss mindestens 12 Zeichen lang sein.' });
+    const now = Date.now();
+    const key = 'password:' + req.ip + ':' + req.user.id;
+    const old = attempts.get(key);
+    const entry = old && old.until > now ? old : { count: 0, until: now + 15 * 60 * 1000 };
+    if (entry.count >= 10) return res.status(429).json({ error: 'Zu viele Versuche. Bitte später erneut versuchen.' });
+    const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    if (!verifyPassword(currentPassword, user.password_hash)) {
+      entry.count++;
+      attempts.set(key, entry);
+      return res.status(400).json({ error: 'Das aktuelle Passwort ist falsch.' });
+    }
+    attempts.delete(key);
+    // Andere Sitzungen beenden; die Sitzung, in der das Passwort geändert wurde, bleibt aktiv.
+    db.transaction(() => {
+      db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), req.user.id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token_hash != ?').run(req.user.id, hashToken(req.sessionToken));
+    })();
+    res.json({ success: true });
+  });
   app.post('/api/auth/logout', (req, res) => {
     db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashToken(req.sessionToken));
     res.clearCookie(cookieName, { httpOnly: true, secure: true, sameSite: 'strict', path: '/' });

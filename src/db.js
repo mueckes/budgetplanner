@@ -69,4 +69,11 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
 `);
 
+// Profilfelder auch bei bereits eingerichteten Konten ergänzen.
+for (const [column, definition] of [['display_name', 'TEXT'], ['email', 'TEXT']]) {
+  if (!db.pragma('table_info(users)').some(field => field.name === column)) {
+    db.exec(`ALTER TABLE users ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 module.exports = db;

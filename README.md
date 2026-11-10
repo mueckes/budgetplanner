@@ -26,6 +26,8 @@ docker compose exec budgetplanner node src/manage-users.js password BENUTZER
 
 Es gibt keine öffentliche Registrierung. Die Anmeldung benötigt HTTPS; Nginx Basic Auth bleibt, falls konfiguriert, ein zusätzlicher Schutz und kann extern eine zweite Anmeldung erfordern. Bestehende LAN-/VPN-Ausnahmen für Nginx umgehen die Kontoanmeldung nicht.
 
+Angemeldete Personen können unter „Konto“ ihren Anzeigenamen und eine optionale E-Mail-Adresse pflegen und ihr Passwort mit dem bisherigen Passwort ändern. Die E-Mail-Adresse ist ein reines Kontaktdatum; es werden keine E-Mails versendet und keine Passwort-Resets per E-Mail angeboten.
+
 ## Tests
 
 Die isolierten API-Tests `tests/smoke-node-sqlite.js` und `tests/accounts-node-sqlite.js` benötigen Node 24 mit `node:sqlite` und installierte Projektabhängigkeiten. Sie nutzen eine SQLite-Datenbank im Speicher und berühren keine Produktionsdaten.

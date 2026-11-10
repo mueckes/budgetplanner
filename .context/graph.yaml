@@ -62,7 +62,7 @@ nodes:
     endpoints: ["POST /api/items", "PUT /api/items/:id", "DELETE /api/items/:id"]
   api:auth:
     file: src/auth.js
-    endpoints: ["POST /api/auth/login", "GET /api/auth/me", "POST /api/auth/logout"]
+    endpoints: ["POST /api/auth/login", "GET /api/auth/me", "PUT /api/auth/profile", "PUT /api/auth/password", "POST /api/auth/logout"]
     note: all API routes require login except login; project and child resources enforce ownership
   api:scraper:
     file: src/server.js
@@ -75,6 +75,10 @@ nodes:
   ui:login:
     file: src/public/login.html
     note: accounts are provisioned locally by the server administrator
+  ui:account_settings:
+    file: src/public/index.html
+    functions: [editAccount, editPassword]
+    note: own display name, optional email and password; no email recovery
   ui:modal_item:
     file: src/public/index.html
     functions: [addItemPrompt, scrapeCurrentUrl, submitNewItem]
