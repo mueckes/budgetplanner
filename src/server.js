@@ -244,7 +244,9 @@ async function readPublicPage(input) {
   if (!addresses.length || addresses.some(({ address }) => blocked.check(address))) throw new Error('Adresse nicht erlaubt');
   return new Promise((resolve, reject) => {
     const request = (url.protocol === 'https:' ? https : http).get(url, {
-      lookup: (_host, _options, callback) => callback(null, addresses[0].address, 4),
+      // Node kann je nach Version eine Adresse oder eine Liste anfordern.
+      lookup: (_host, options, callback) => options.all
+        ? callback(null, [addresses[0]]) : callback(null, addresses[0].address, 4),
       headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' }
     }, response => {
       // Weiterleitungen bewusst ablehnen, damit sie keine internen Ziele umgehen.
