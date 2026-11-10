@@ -174,7 +174,10 @@ app.put('/api/items/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM budget_items WHERE id = ?').get(req.params.id);
   if (!item) return res.status(404).json({ error: 'Kostenpunkt nicht gefunden' });
   const { name = item.name, url = item.url || '', dueDate = item.due_date || '', costMin = item.cost_min, costExpected = item.cost_expected, costMax = item.cost_max, status = item.status, actualCost = item.actual_cost, paidDate = item.paid_date || '' } = req.body;
-  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![costMin, costExpected, costMax].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten; bezahlte Kostenpunkte benötigen einen Ist-Betrag' });
+  // Gelöschte Grenzen übernehmen den Planwert; eine ausdrücklich eingegebene 0 bleibt erhalten.
+  const min = costMin === null ? costExpected : costMin;
+  const max = costMax === null ? costExpected : costMax;
+  if (!validName(name) || typeof url !== 'string' || !validDate(dueDate) || !validDate(paidDate) || ![min, costExpected, max].every(validAmount) || !statuses.includes(status) || (actualCost !== null && !validAmount(actualCost)) || (status === 'paid' && actualCost === null)) return res.status(400).json({ error: 'Ungültige Kostenpunktdaten; bezahlte Kostenpunkte benötigen einen Ist-Betrag' });
   const update = db.prepare(`
     UPDATE budget_items
     SET name = ?, url = ?, due_date = ?, cost_min = ?, cost_expected = ?, cost_max = ?, status = ?, actual_cost = ?, paid_date = ?
@@ -185,7 +188,7 @@ app.put('/api/items/:id', (req, res) => {
     name,
     url,
     dueDate,
-    costMin, costExpected, costMax, status, actualCost, paidDate,
+    min, costExpected, max, status, actualCost, paidDate,
     req.params.id
   );
   
@@ -436,4 +439,3 @@ app.post('/api/scrape-url', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Budgetplanner läuft auf Port ${PORT}`);
 });
-
