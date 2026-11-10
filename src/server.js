@@ -2,6 +2,10 @@ const express = require('express');
 const path = require('path');
 const db = require('./db');
 const cheerio = require('cheerio');
+const dns = require('dns').promises;
+const net = require('net');
+const http = require('http');
+const https = require('https');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,11 +19,21 @@ app.get('/api/projects', (req, res) => {
   res.json(projects);
 });
 
+const templates = {
+  moving: ['Transport', 'Verpackung', 'Altwohnung', 'Neue Wohnung', 'Behörden & Ummeldung', 'Puffer'],
+  renovation: ['Planung', 'Böden', 'Wände & Decken', 'Material & Werkzeuge', 'Handwerker', 'Puffer']
+};
 app.post('/api/projects', (req, res) => {
-  const { name, description } = req.body;
-  const insert = db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)');
-  const result = insert.run(name, description || '');
-  res.json({ id: result.lastInsertRowid, name, description });
+  const { name, description, template } = req.body;
+  if (template && !Object.hasOwn(templates, template)) return res.status(400).json({ error: 'Unbekannte Vorlage' });
+  // Projekt und Kategorien gemeinsam speichern, damit keine halbe Vorlage entsteht.
+  const id = db.transaction(() => {
+    const result = db.prepare('INSERT INTO projects (name, description) VALUES (?, ?)').run(name, description || '');
+    const insert = db.prepare('INSERT INTO categories (project_id, name, sort_order) VALUES (?, ?, ?)');
+    (templates[template] || []).forEach((category, index) => insert.run(result.lastInsertRowid, category, index));
+    return result.lastInsertRowid;
+  })();
+  res.json({ id, name, description });
 });
 
 // 2. Gesamtes Projekt inklusive Kategorien, Items & Aggregationen laden
@@ -217,43 +231,52 @@ app.get('/api/projects/:id/export', (req, res) => {
   res.send(JSON.stringify(exportData, null, 2));
 });
 
+// Nur öffentliche IPv4-Adressen zulassen; DNS-Ergebnis direkt für die Verbindung verwenden.
+const blocked = new net.BlockList();
+[['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.88.99.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 4], ['240.0.0.0', 4]].forEach(([address, prefix]) => blocked.addSubnet(address, prefix));
+async function readPublicPage(input) {
+  const url = new URL(input);
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Ungültige URL');
+  const addresses = await Promise.race([
+    dns.lookup(url.hostname, { all: true, family: 4 }),
+    new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('DNS-Zeitüberschreitung')), 6000); timer.unref(); })
+  ]);
+  if (!addresses.length || addresses.some(({ address }) => blocked.check(address))) throw new Error('Adresse nicht erlaubt');
+  return new Promise((resolve, reject) => {
+    const request = (url.protocol === 'https:' ? https : http).get(url, {
+      lookup: (_host, _options, callback) => callback(null, addresses[0].address, 4),
+      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html', 'Accept-Language': 'de-DE,de;q=0.9' }
+    }, response => {
+      // Weiterleitungen bewusst ablehnen, damit sie keine internen Ziele umgehen.
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        response.resume();
+        return reject(new Error(`Website meldet Status ${response.statusCode}`));
+      }
+      let size = 0;
+      const chunks = [];
+      response.on('data', chunk => {
+        size += chunk.length;
+        if (size > 2 * 1024 * 1024) request.destroy(new Error('Antwort zu groß'));
+        else chunks.push(chunk);
+      });
+      response.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      response.on('error', reject);
+    });
+    const timer = setTimeout(() => request.destroy(new Error('Zeitüberschreitung')), 6000);
+    request.on('close', () => clearTimeout(timer));
+    request.on('error', reject);
+  });
+}
+
 // URL-Metadaten & Preis extrahieren (Schema.org / JSON-LD + OpenGraph)
 app.post('/api/scrape-url', async (req, res) => {
   const { url } = req.body;
-  if (!url || !url.startsWith('http')) {
+  if (typeof url !== 'string' || !url.startsWith('http')) {
     return res.status(400).json({ error: 'Ungültige URL' });
   }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000); // 6s Timeout
-
-    const response = await fetch(url, {
-      signal: controller.signal,
-      redirect: 'follow',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,;q=0.8',
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-        'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'sec-fetch-dest': 'document',
-        'sec-fetch-mode': 'navigate',
-        'sec-fetch-site': 'none',
-        'sec-fetch-user': '?1',
-        'upgrade-insecure-requests': '1'
-      }
-    });
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      return res.status(400).json({ error: `Website meldet Status ${response.status}` });
-    }
-
-    const html = await response.text();
+    const html = await readPublicPage(url);
     const $ = cheerio.load(html);
 
     let title = null;
@@ -335,3 +358,4 @@ app.post('/api/scrape-url', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Budgetplanner läuft auf Port ${PORT}`);
 });
+
